@@ -15,6 +15,7 @@ enum Expr {
     Grouping(Box<Expr>),
     Unary(Box<Token>, Box<Expr>),
     Binary(Box<Expr>, Box<Token>, Box<Expr>),
+    Comma(Vec<Expr>),
     None,
 }
 
@@ -52,7 +53,21 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Result<Expr,ParseError> {
-        self.equality()
+        self.comma()
+    }
+
+    fn comma(&mut self) -> Result<Expr,ParseError> {
+        let mut exprs: Vec<Expr> = vec![self.equality()?];
+
+        while self.match_tokens(vec![TokenTypeDiscriminants::Comma]) {
+            exprs.push(self.equality()?)
+        }
+
+        if exprs.len() > 1 {
+            Ok(Expr::Comma(exprs))
+        } else {
+            Ok(exprs.remove(0))
+        }
     }
 
     binary!(equality, vec![TokenType::BangEqual, TokenType::EqualEqual], comparison);
