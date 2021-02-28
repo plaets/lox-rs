@@ -15,6 +15,7 @@ enum Expr {
     Grouping(Box<Expr>),
     Unary(Box<Token>, Box<Expr>),
     Binary(Box<Expr>, Box<Token>, Box<Expr>),
+    Tenary(Box<Expr>, Box<Expr>, Box<Expr>),
     Comma(Vec<Expr>),
     None,
 }
@@ -57,10 +58,10 @@ impl Parser {
     }
 
     fn comma(&mut self) -> Result<Expr,ParseError> {
-        let mut exprs: Vec<Expr> = vec![self.equality()?];
+        let mut exprs: Vec<Expr> = vec![self.tenary()?];
 
         while self.match_tokens(vec![TokenTypeDiscriminants::Comma]) {
-            exprs.push(self.equality()?)
+            exprs.push(self.tenary()?)
         }
 
         if exprs.len() > 1 {
@@ -68,6 +69,21 @@ impl Parser {
         } else {
             Ok(exprs.remove(0))
         }
+    }
+
+    fn tenary(&mut self) -> Result<Expr,ParseError> {
+        let cond = self.equality()?;
+
+        if self.match_tokens(vec![TokenTypeDiscriminants::QuestionMark]) {
+            let if_true = self.equality()?;
+            if self.match_tokens(vec![TokenTypeDiscriminants::Colon]) {
+                let if_false = self.equality()?;
+                return Ok(Expr::Tenary(Box::new(cond), Box::new(if_true), Box::new(if_false)))
+            } 
+            return Err(ParseError(self.peek(), "Expected ':'.".to_string()))
+        }
+
+        Ok(cond)
     }
 
     binary!(equality, vec![TokenType::BangEqual, TokenType::EqualEqual], comparison);
@@ -206,7 +222,7 @@ fn run(data: &str) {
     scanner.scan_tokens();
     let mut parser = Parser::new(scanner.tokens.clone());
     let tree = parser.parse();
-    //println!("{:?}", scanner.tokens.iter().map(|t| t.token_type.clone()).collect::<Vec<TokenType>>());
+    println!("{:?}", scanner.tokens.iter().map(|t| t.token_type.clone()).collect::<Vec<TokenType>>());
     println!("{:#?}", tree);
 }
 
