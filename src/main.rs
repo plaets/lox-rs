@@ -96,6 +96,14 @@ impl Parser {
             let op = self.previous();
             let right = self.unary()?;
             return Ok(Expr::Unary(Box::new(op), Box::new(right)));
+        } else if self.match_tokens(vec![TokenTypeDiscriminants::BangEqual, TokenTypeDiscriminants::EqualEqual, 
+               TokenTypeDiscriminants::Greater, TokenTypeDiscriminants::GreaterEqual, TokenTypeDiscriminants::Less, 
+               TokenTypeDiscriminants::LessEqual, TokenTypeDiscriminants::Minus, TokenTypeDiscriminants::Plus,
+               TokenTypeDiscriminants::Slash, TokenTypeDiscriminants::Star]) {
+            let op = self.previous();
+            let right = self.unary()?;
+            println!("{:?}", Expr::Unary(Box::new(op), Box::new(right)));
+            return Err(ParseError(self.peek(), "Binary expression without left-hand operand".to_string()))
         }
 
         self.primary()
