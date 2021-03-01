@@ -28,6 +28,14 @@ pub enum Keyword {
 }
 
 #[derive(Debug, Clone, PartialEq, EnumDiscriminants)]
+pub enum Object {
+    Null,
+    Bool(bool),
+    String(String),
+    Number(f64),
+}
+
+#[derive(Debug, Clone, PartialEq, EnumDiscriminants)]
 pub enum TokenType {
     LeftParen,
     RightParen,
@@ -49,8 +57,8 @@ pub enum TokenType {
     GreaterEqual,
     Greater,
 
-    String(String),
-    Number(f64),
+    String(Object),             //TODO: how to handle invlaid variants like TokenType::String(Object::Number)?
+    Number(Object),
     Keyword(Keyword),
     Identifier(String),
 
@@ -201,7 +209,7 @@ impl Scanner {
 
         self.advance();
         let value = self.source_iter[self.start+1..self.current-1].iter().collect::<String>();
-        self.add_token(TokenType::String(value))
+        self.add_token(TokenType::String(Object::String(value)))
     }
 
     fn number(&mut self) {
@@ -226,7 +234,7 @@ impl Scanner {
         }
 
         let value = self.source_iter[self.start..self.current].iter().collect::<String>();
-        self.add_token(TokenType::Number(value.parse::<f64>().unwrap()));
+        self.add_token(TokenType::Number(Object::Number(value.parse::<f64>().unwrap())));
     }
 
     fn is_alpha(&self, c: char) -> bool {
