@@ -16,11 +16,11 @@ fn run(data: &str) {
     scanner.scan_tokens();
     let mut parser = Parser::new(scanner.tokens.clone());
     let tree = parser.parse();
-    let interpreter = Interpreter::new();
+    let mut interpreter = Interpreter::new();
     match tree {
         Ok(t) => {
-            let res = interpreter.evaluate(&t);
-            if let Ok(res) = res {
+            let res = interpreter.interpret(&t);
+            if let Ok(Some(res)) = res {
                 println!("{}", res);
             } else {
                 println!("{:?}", res);
@@ -51,14 +51,6 @@ fn run_prompt() -> Result<(), std::io::Error> {
 }
 
 fn main() -> Result<(), std::io::Error> {
-    //let expr = Expr::Binary(
-    //    Box::new(Expr::Unary(Box::new(Token::new(TokenType::Minus, "-".to_string(), 0)), 
-    //             Box::new(Expr::Literal(Box::new(Token::new(TokenType::Number(Object::Number(45.67)), "45.67".to_string(), 0)))))),
-    //    Box::new(Token::new(TokenType::Star, "*".to_string(), 0)),
-    //    Box::new(Expr::Grouping(Box::new(Expr::Literal(Box::new(Token::new(TokenType::Number(Object::Number(45.67)), "45.67".to_string(), 0)))))),
-    //);
-    //println!("{:#}", expr);
-
     if env::args().len() > 2 {
         println!("Usage: {} script", env::args().nth(0).unwrap());
         Ok(())

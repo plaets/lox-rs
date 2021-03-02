@@ -2,6 +2,12 @@ use std::fmt;
 use crate::lexer::*;
 
 #[derive(Debug)]
+pub enum Stmt {
+    Expr(Expr),
+    Print(Expr),
+}
+
+#[derive(Debug)]
 pub enum Expr {
     Literal(Box<Token>),
     Grouping(Box<Expr>),
@@ -38,8 +44,30 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Expr,ParseError> {
-        self.expression()
+    pub fn parse(&mut self) -> Result<Vec<Stmt>,ParseError> {
+        let mut statements: Vec<Stmt> = Vec::new();
+        while !self.is_at_end() {
+            statements.push(self.statement()?);
+        }
+        Ok(statements)
+    }
+
+    fn statement(&mut self) -> Result<Stmt,ParseError> {
+        if self.match_tokens(vec![TokenTypeDiscriminants::Keyword]) {
+            if let TokenType::Keyword(k) = &self.previous().token_type {
+                return match k {
+                    Keyword::Print => self.print_statement(),
+                    _ => Err(ParseError(self.previous(), ParseErrorReason::NotImplemented)),
+                }
+            }
+        } 
+        Ok(Stmt::Expr(self.expression()?))
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt,ParseError> {
+        let expr = self.expression()?;
+        self.consume(TokenTypeDiscriminants::Semicolon, ParseErrorReason::ExpectedSemicolon);
+        Ok(Stmt::Print(expr))
     }
 
     fn expression(&mut self) -> Result<Expr,ParseError> {
@@ -174,6 +202,8 @@ impl Parser {
 pub enum ParseErrorReason {
     ExpectedParen,
     ExpectedExpr,
+    ExpectedSemicolon,
+    NotImplemented,
     Other(String),
 }
 
@@ -185,4 +215,3 @@ impl fmt::Display for Expr {
         write!(f, "{:#?}", self)
     }
 }
-

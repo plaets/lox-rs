@@ -1,7 +1,7 @@
 use std::fmt;
 use strum_macros::EnumDiscriminants;
 use crate::lexer::{Token, TokenType, TokenTypeDiscriminants, Keyword};
-use crate::parser::Expr;
+use crate::parser::{Expr,Stmt};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OperationType {
@@ -116,7 +116,27 @@ impl Interpreter {
         Self {}
     }
 
-    pub fn evaluate(&self, expr: &Expr) -> Result<Object,InterpreterError> {
+    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<Option<Object>,InterpreterError> {
+        let mut res: Option<Object> = None;
+        for stmt in statements {
+            res = self.execute(&stmt)?;
+        }
+        Ok(res)
+    }
+
+    fn execute(&mut self, stmt: &Stmt) -> Result<Option<Object>,InterpreterError> {
+        Ok(match stmt {
+            Stmt::Expr(expr) => Some(self.evaluate(expr)?),
+            Stmt::Print(expr) => self.exec_print(expr)?,
+        })
+    }
+
+    fn exec_print(&self, expr: &Expr) -> Result<Option<Object>,InterpreterError> {
+        println!("{}", self.evaluate(expr)?);
+        Ok(None)
+    }
+
+    fn evaluate(&self, expr: &Expr) -> Result<Object,InterpreterError> {
         match expr {
             Expr::Literal(token) => self.get_object(&token),
             Expr::Grouping(expr) => self.evaluate(&expr),
