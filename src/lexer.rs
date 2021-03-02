@@ -2,9 +2,8 @@ use std::io::prelude::*;
 use std::io::{stderr};
 use std::fmt;
 use std::clone::Clone;
-use std::vec::IntoIter;
-use std::str::Chars;
 use strum_macros::EnumDiscriminants;
+use crate::interpreter::Object;
 
 #[enumeration(rename_all = "snake_case")]
 #[derive(Debug, Clone, PartialEq, enum_utils::FromStr)]
@@ -25,14 +24,6 @@ pub enum Keyword {
     True,
     Var,
     While,
-}
-
-#[derive(Debug, Clone, PartialEq, EnumDiscriminants)]
-pub enum Object {
-    Null,
-    Bool(bool),
-    String(String),
-    Number(f64),
 }
 
 #[derive(Debug, Clone, PartialEq, EnumDiscriminants)]
@@ -298,6 +289,6 @@ impl Scanner {
 
     fn report(&self, line: usize, err_where: &str, msg: &str) {
         let s: String = format!("[line {}] Error {}: {}", line, err_where, msg);
-        stderr().write_all(s.as_bytes());
+        stderr().write_all(s.as_bytes()).unwrap();
     }
 }

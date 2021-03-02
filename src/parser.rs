@@ -1,6 +1,3 @@
-use std::io::prelude::*;
-use std::io::{stderr, Cursor};
-use std::iter::Peekable;
 use std::fmt;
 use crate::lexer::*;
 
@@ -10,7 +7,6 @@ pub enum Expr {
     Grouping(Box<Expr>),
     Unary(Box<Token>, Box<Expr>),
     Binary(Box<Expr>, Box<Token>, Box<Expr>),
-    None,
 }
 
 pub struct Parser {
@@ -66,7 +62,7 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Result<Expr,ParseError> {
-        if self.check(TokenTypeDiscriminants::Identifier) {
+        if self.check(TokenTypeDiscriminants::Keyword) {
             let token = self.advance();
             let token_type = token.token_type.clone();
             if let TokenType::Keyword(id) = token_type {
@@ -74,6 +70,8 @@ impl Parser {
                     Keyword::False | Keyword::True | Keyword::Nil => return Ok(Expr::Literal(Box::new(token))),
                     _ => ()
                 }
+            } else {
+                return Err(ParseError(token, ParseErrorReason::Other("FATAL Expected a keyword".to_string())))
             }
         }
 
@@ -83,11 +81,11 @@ impl Parser {
 
         if self.match_tokens(vec![TokenTypeDiscriminants::LeftParen]) {
             let expr = self.expression()?;
-            self.consume(TokenTypeDiscriminants::RightParen, "Expected ')' efter expression.".to_string())?;
+            self.consume(TokenTypeDiscriminants::RightParen, ParseErrorReason::ExpectedParen)?;
             return Ok(Expr::Grouping(Box::new(expr)))
         }
 
-        return Err(ParseError(self.peek(), "Expected expression.".to_string()))
+        return Err(ParseError(self.peek(), ParseErrorReason::ExpectedExpr))
     }
 
     fn match_tokens(&mut self, token_types: Vec<TokenTypeDiscriminants>) -> bool {
@@ -127,12 +125,12 @@ impl Parser {
         }
     }
 
-    fn consume(&mut self, token_type: TokenTypeDiscriminants, msg: String) -> Result<Token, ParseError> {
+    fn consume(&mut self, token_type: TokenTypeDiscriminants, reason: ParseErrorReason) -> Result<Token, ParseError> {
         if self.check(token_type) {
             return Ok(self.advance())
         }
 
-        Err(ParseError(self.peek(), msg))
+        Err(ParseError(self.peek(), reason))
     }
 
     fn synchronize(&mut self) {
@@ -158,22 +156,29 @@ impl Parser {
         }
     }
 
-    fn error(&self, token: Token, msg: String) {
-        if TokenTypeDiscriminants::from(token.token_type) == TokenTypeDiscriminants::Eof {
-            self.report(token.line, "at end", &msg);
-        } else {
-            self.report(token.line, &(" at '".to_owned() + &token.lexeme + "'"), &msg);
-        }
-    }
+    //fn error(&self, token: Token, msg: String) {
+    //    if TokenTypeDiscriminants::from(token.token_type) == TokenTypeDiscriminants::Eof {
+    //        self.report(token.line, "at end", &msg);
+    //    } else {
+    //        self.report(token.line, &(" at '".to_owned() + &token.lexeme + "'"), &msg);
+    //    }
+    //}
 
-    fn report(&self, line: usize, err_where: &str, msg: &str) {
-        let s: String = format!("[line {}] Error {}: {}", line, err_where, msg);
-        stderr().write_all(s.as_bytes());
-    }
+    //fn report(&self, line: usize, err_where: &str, msg: &str) {
+    //    let s: String = format!("[line {}] Error {}: {}", line, err_where, msg);
+    //    stderr().write_all(s.as_bytes());
+    //}
 }
 
 #[derive(Debug, Clone)]
-pub struct ParseError(Token, String);
+pub enum ParseErrorReason {
+    ExpectedParen,
+    ExpectedExpr,
+    Other(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct ParseError(Token, ParseErrorReason);
 
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

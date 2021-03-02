@@ -8,14 +8,23 @@ mod lexer;
 use lexer::*;
 mod parser;
 use parser::*;
+mod interpreter;
+use interpreter::*;
 
 fn run(data: &str) {
     let mut scanner = Scanner::new(data.to_string());
     scanner.scan_tokens();
     let mut parser = Parser::new(scanner.tokens.clone());
     let tree = parser.parse();
+    match tree {
+        Ok(t) => {
+            let res = evaluate(&t);
+            println!("{:#?}", res);
+        },
+        Err(e) => println!("parse error: {:#?}", e),
+    }
     //println!("{:?}", scanner.tokens.iter().map(|t| t.token_type.clone()).collect::<Vec<TokenType>>());
-    println!("{:#?}", tree);
+    //println!("{:#?}", tree);
 }
 
 fn run_file(path: &str) -> Result<(), std::io::Error> {
@@ -37,13 +46,13 @@ fn run_prompt() -> Result<(), std::io::Error> {
 }
 
 fn main() -> Result<(), std::io::Error> {
-    let expr = Expr::Binary(
-        Box::new(Expr::Unary(Box::new(Token::new(TokenType::Minus, "-".to_string(), 0)), 
-                 Box::new(Expr::Literal(Box::new(Token::new(TokenType::Number(Object::Number(45.67)), "45.67".to_string(), 0)))))),
-        Box::new(Token::new(TokenType::Star, "*".to_string(), 0)),
-        Box::new(Expr::Grouping(Box::new(Expr::Literal(Box::new(Token::new(TokenType::Number(Object::Number(45.67)), "45.67".to_string(), 0)))))),
-    );
-    println!("{:#}", expr);
+    //let expr = Expr::Binary(
+    //    Box::new(Expr::Unary(Box::new(Token::new(TokenType::Minus, "-".to_string(), 0)), 
+    //             Box::new(Expr::Literal(Box::new(Token::new(TokenType::Number(Object::Number(45.67)), "45.67".to_string(), 0)))))),
+    //    Box::new(Token::new(TokenType::Star, "*".to_string(), 0)),
+    //    Box::new(Expr::Grouping(Box::new(Expr::Literal(Box::new(Token::new(TokenType::Number(Object::Number(45.67)), "45.67".to_string(), 0)))))),
+    //);
+    //println!("{:#}", expr);
 
     if env::args().len() > 2 {
         println!("Usage: {} script", env::args().nth(0).unwrap());
