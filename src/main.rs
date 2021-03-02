@@ -16,10 +16,15 @@ fn run(data: &str) {
     scanner.scan_tokens();
     let mut parser = Parser::new(scanner.tokens.clone());
     let tree = parser.parse();
+    let interpreter = Interpreter::new();
     match tree {
         Ok(t) => {
-            let res = evaluate(&t);
-            println!("{:#?}", res);
+            let res = interpreter.evaluate(&t);
+            if let Ok(res) = res {
+                println!("{}", res);
+            } else {
+                println!("{:?}", res);
+            }
         },
         Err(e) => println!("parse error: {:#?}", e),
     }

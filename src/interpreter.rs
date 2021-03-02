@@ -1,3 +1,4 @@
+use std::fmt;
 use strum_macros::EnumDiscriminants;
 use crate::lexer::{Token, TokenType, TokenTypeDiscriminants, Keyword};
 use crate::parser::Expr;
@@ -35,13 +36,26 @@ pub enum Object {
     Number(f64),
 }
 
+impl fmt::Display for Object {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Object::Nil => write!(f, "nil"),
+            Object::Bool(val) => write!(f, "{}", val),
+            Object::String(val) => write!(f, "\"{}\"", val),
+            Object::Number(val) => write!(f, "{}", val),
+        }
+    }
+}
+
+pub struct Interpreter;
+
 macro_rules! number_bin_op {
     ($fn:ident,$op:tt,$obj:ident,$op_type:path) => {
         pub fn $fn(&self, other: &Self) -> Result<Self,InterpreterErrorReason> {
             match (self, other) {
                 (Object::Number(a), Object::Number(b)) => Ok(Object::$obj(a $op b)),
                 _ => Err(InterpreterErrorReason::InvalidBinaryOperands(ObjectDiscriminants::from(self), 
-                                                                       $op_type, ObjectDiscriminants::from(self))),
+                       $op_type, ObjectDiscriminants::from(self))),
             }
         }
     }
@@ -60,7 +74,7 @@ impl Object {
         match self {
             Object::Number(num) => Ok(Object::Number(-num)),
             _ => Err(InterpreterErrorReason::InvalidUnaryOperand(OperationType::Neg, 
-                                                                 ObjectDiscriminants::from(self))),
+                     ObjectDiscriminants::from(self))),
         }
     }
 
@@ -78,6 +92,8 @@ impl Object {
         match (self, other) {
             (Object::Number(a), Object::Number(b)) => Ok(Object::Number(a + b)),
             (Object::String(a), Object::String(b)) => Ok(Object::String(a.to_owned() + b)),
+            (Object::Number(a), Object::String(b)) => Ok(Object::String(a.to_string() + b)),
+            (Object::String(a), Object::Number(b)) => Ok(Object::String(a.to_owned() + &b.to_string())),
             _ => Err(InterpreterErrorReason::InvalidBinaryOperands(ObjectDiscriminants::from(self), 
                                                    OperationType::Add, ObjectDiscriminants::from(self))),
         }
@@ -93,58 +109,65 @@ impl Object {
     number_bin_op!(leq, <=, Bool, OperationType::Leq);
 }
 
-fn get_object(token: &Token) -> Result<Object,InterpreterError> {
-    match &token.token_type {
-        TokenType::Keyword(k) => match k {
-            Keyword::True => Ok(Object::Bool(true)),
-            Keyword::False => Ok(Object::Bool(false)),
-            Keyword::Nil => Ok(Object::Nil),
-            _ => Err(InterpreterError(token.clone(), InterpreterErrorReason::NotALiteral)),
-        },
-        TokenType::String(obj) => Ok(obj.clone()),
-        TokenType::Number(obj) => Ok(obj.clone()),
-        _ => Err(InterpreterError(token.clone(), InterpreterErrorReason::NotALiteral)),
-    }
-}
-
 macro_rules! map_int_err {
     ($e:expr,$token:ident) => { ($e).map_err(|e| InterpreterError($token.clone(), e)) }
 }
 
-fn evaluate_unary(token: &Token, expr: &Expr) -> Result<Object,InterpreterError> {
-    let right = evaluate(expr)?;
-
-    match &token.token_type {
-        TokenType::Minus => map_int_err!(right.neg(), token),
-        TokenType::Bang => Ok(Object::Bool(!right.is_truthy())),
-        _ => Err(InterpreterError(token.clone(), InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&token.token_type)))),
+impl Interpreter {
+    pub fn new() -> Self {
+        Self {}
     }
-}
 
-fn evaluate_binary(left: &Expr, op: &Token, right: &Expr) -> Result<Object,InterpreterError> {
-    let left = evaluate(left)?;
-    let right = evaluate(right)?;
-
-    match &op.token_type {
-        TokenType::Minus => map_int_err!(left.sub(&right), op),
-        TokenType::Slash => map_int_err!(left.div(&right), op),
-        TokenType::Star => map_int_err!(left.mul(&right), op),
-        TokenType::Plus => map_int_err!(left.add(&right), op),
-        TokenType::LessEqual => map_int_err!(left.leq(&right), op),
-        TokenType::Less => map_int_err!(left.less(&right), op),
-        TokenType::GreaterEqual => map_int_err!(left.geq(&right), op),
-        TokenType::Greater => map_int_err!(left.greater(&right), op),
-        TokenType::EqualEqual => map_int_err!(left.equal(&right), op),
-        TokenType::BangEqual => map_int_err!(map_int_err!(left.equal(&right), op)?.neg(), op),
-        _ => Err(InterpreterError(op.clone(), InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&op.token_type)))),
+    pub fn evaluate(&self, expr: &Expr) -> Result<Object,InterpreterError> {
+        match expr {
+            Expr::Literal(token) => self.get_object(&token),
+            Expr::Grouping(expr) => self.evaluate(&expr),
+            Expr::Unary(token, expr) => self.evaluate_unary(token, expr),
+            Expr::Binary(left, op, right) => self.evaluate_binary(left, op, right),
+        }
     }
-}
 
-pub fn evaluate(expr: &Expr) -> Result<Object,InterpreterError> {
-    match expr {
-        Expr::Literal(token) => get_object(&token),
-        Expr::Grouping(expr) => evaluate(&expr),
-        Expr::Unary(token, expr) => evaluate_unary(token, expr),
-        Expr::Binary(left, op, right) => evaluate_binary(left, op, right),
+    fn get_object(&self, token: &Token) -> Result<Object,InterpreterError> {
+        match &token.token_type {
+            TokenType::Keyword(k) => match k {
+                Keyword::True => Ok(Object::Bool(true)),
+                Keyword::False => Ok(Object::Bool(false)),
+                Keyword::Nil => Ok(Object::Nil),
+                _ => Err(InterpreterError(token.clone(), InterpreterErrorReason::NotALiteral)),
+            },
+            TokenType::String(obj) => Ok(obj.clone()),
+            TokenType::Number(obj) => Ok(obj.clone()),
+            _ => Err(InterpreterError(token.clone(), InterpreterErrorReason::NotALiteral)),
+        }
+    }
+
+    fn evaluate_unary(&self, token: &Token, expr: &Expr) -> Result<Object,InterpreterError> {
+        let right = self.evaluate(expr)?;
+
+        match &token.token_type {
+            TokenType::Minus => map_int_err!(right.neg(), token),
+            TokenType::Bang => Ok(Object::Bool(!right.is_truthy())),
+            _ => Err(InterpreterError(token.clone(), InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&token.token_type)))),
+        }
+    }
+
+    fn evaluate_binary(&self, left: &Expr, op: &Token, right: &Expr) -> Result<Object,InterpreterError> {
+        let left = self.evaluate(left)?;
+        let right = self.evaluate(right)?;
+
+        match &op.token_type {
+            TokenType::Minus => map_int_err!(left.sub(&right), op),
+            TokenType::Slash => map_int_err!(left.div(&right), op),
+            TokenType::Star => map_int_err!(left.mul(&right), op),
+            TokenType::Plus => map_int_err!(left.add(&right), op),
+            TokenType::LessEqual => map_int_err!(left.leq(&right), op),
+            TokenType::Less => map_int_err!(left.less(&right), op),
+            TokenType::GreaterEqual => map_int_err!(left.geq(&right), op),
+            TokenType::Greater => map_int_err!(left.greater(&right), op),
+            TokenType::EqualEqual => map_int_err!(left.equal(&right), op),
+            TokenType::BangEqual => map_int_err!(map_int_err!(left.equal(&right), op)?.neg(), op),
+            _ => Err(InterpreterError(op.clone(), 
+                  InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&op.token_type)))),
+        }
     }
 }
