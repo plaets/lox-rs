@@ -25,7 +25,8 @@ pub enum InterpreterErrorReason {
     NotALiteral,
     InvalidBinaryOperands(ObjectDiscriminants, OperationType, ObjectDiscriminants),
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
-    InvalidOperator(TokenTypeDiscriminants)
+    InvalidOperator(TokenTypeDiscriminants),
+    DivisionByZero,
 }
 
 #[derive(Debug, Clone, PartialEq, EnumDiscriminants)]
@@ -97,10 +98,23 @@ impl Object {
         }
     }
 
+    pub fn div(&self, other: &Self) -> Result<Self,InterpreterErrorReason> {
+        match (self, other) {
+            (Object::Number(a), Object::Number(b)) => {
+                if *b != 0.0 {
+                    Ok(Object::Number(a / b))
+                } else {
+                    Err(InterpreterErrorReason::DivisionByZero)
+                }
+            }
+            _ => Err(InterpreterErrorReason::InvalidBinaryOperands(ObjectDiscriminants::from(self), 
+                                                   OperationType::Add, ObjectDiscriminants::from(self))),
+        }
+    }
+
     //number_bin_op!(add, +, Number, OperationType::Add);
     number_bin_op!(mul, *, Number, OperationType::Mul);
     number_bin_op!(sub, -, Number, OperationType::Sub);
-    number_bin_op!(div, /, Number, OperationType::Div);
     number_bin_op!(greater, >, Bool, OperationType::Greater);
     number_bin_op!(geq, >=, Bool, OperationType::Geq);
     number_bin_op!(less, <, Bool, OperationType::Less);
