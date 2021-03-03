@@ -5,14 +5,18 @@ use crate::lexer::*;
 pub enum Stmt {
     Expr(Expr),
     Print(Expr),
+    Var(Box<Token>, Option<Expr>), //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
+    //having tokens here is pretty cool as it allows better error handling 
 }
 
 #[derive(Debug)]
 pub enum Expr {
     Literal(Box<Token>),
+    Variable(Box<Token>),
     Grouping(Box<Expr>),
     Unary(Box<Token>, Box<Expr>),
     Binary(Box<Expr>, Box<Token>, Box<Expr>),
+    Assign(Box<Token>, Box<Expr>),
 }
 
 pub struct Parser {
@@ -47,9 +51,36 @@ impl Parser {
     pub fn parse(&mut self) -> Result<Vec<Stmt>,ParseError> {
         let mut statements: Vec<Stmt> = Vec::new();
         while !self.is_at_end() {
-            statements.push(self.statement()?);
+            statements.push(self.declaration()?);
         }
         Ok(statements)
+    }
+
+    fn declaration(&mut self) -> Result<Stmt,ParseError> {
+        if self.match_tokens(vec![TokenTypeDiscriminants::Keyword]) {
+            if let TokenType::Keyword(k) = self.previous().token_type {
+                if k == Keyword::Var {
+                    return self.var_declaration().map_err(|e| {
+                        self.synchronize();
+                        e
+                    })
+                } 
+            }
+        }
+        self.statement().map_err(|e| {
+            self.synchronize();
+            e
+        })
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt,ParseError> {
+        let name = self.consume(TokenTypeDiscriminants::Identifier, ParseErrorReason::ExpectedVariableName)?;
+        let mut init: Option<Expr> = None;
+        if self.match_tokens(vec![TokenTypeDiscriminants::Equal]) {
+            init = Some(self.expression()?);
+        }
+        self.consume(TokenTypeDiscriminants::Semicolon, ParseErrorReason::ExpectedSemicolon);
+        Ok(Stmt::Var(Box::new(name), init))
     }
 
     fn statement(&mut self) -> Result<Stmt,ParseError> {
@@ -61,17 +92,38 @@ impl Parser {
                 }
             }
         } 
-        Ok(Stmt::Expr(self.expression()?))
+        self.expr_statement()
     }
 
     fn print_statement(&mut self) -> Result<Stmt,ParseError> {
         let expr = self.expression()?;
-        self.consume(TokenTypeDiscriminants::Semicolon, ParseErrorReason::ExpectedSemicolon);
+        self.consume(TokenTypeDiscriminants::Semicolon, ParseErrorReason::ExpectedSemicolon)?;
         Ok(Stmt::Print(expr))
     }
 
+    fn expr_statement(&mut self) -> Result<Stmt,ParseError> {
+        let value = self.expression()?;
+        self.consume(TokenTypeDiscriminants::Semicolon, ParseErrorReason::ExpectedSemicolon)?;
+        Ok(Stmt::Expr(value))
+    }
+
     fn expression(&mut self) -> Result<Expr,ParseError> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<Expr,ParseError> {
+        let expr = self.equality()?;
+        if self.match_tokens(vec![TokenTypeDiscriminants::Equal]) {
+            let equals = self.previous();
+            let value = self.assignment()?;
+            if let Expr::Variable(name) = expr {
+                Ok(Expr::Assign(name, Box::new(value)))
+            } else {
+                Err(ParseError(equals, ParseErrorReason::InvalidAssignmentTarget))
+            }
+        } else {
+            Ok(expr)
+        }
     }
 
     binary!(equality, vec![TokenType::BangEqual, TokenType::EqualEqual], comparison);
@@ -105,6 +157,10 @@ impl Parser {
 
         if self.match_tokens(vec![TokenTypeDiscriminants::Number, TokenTypeDiscriminants::String]) {
             return Ok(Expr::Literal(Box::new(self.previous())))
+        }
+
+        if self.match_tokens(vec![TokenTypeDiscriminants::Identifier]) {
+            return Ok(Expr::Variable(Box::new(self.previous())))
         }
 
         if self.match_tokens(vec![TokenTypeDiscriminants::LeftParen]) {
@@ -203,6 +259,8 @@ pub enum ParseErrorReason {
     ExpectedParen,
     ExpectedExpr,
     ExpectedSemicolon,
+    ExpectedVariableName,
+    InvalidAssignmentTarget,
     NotImplemented,
     Other(String),
 }

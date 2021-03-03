@@ -1,10 +1,9 @@
-use std::io::prelude::*;
-use std::io::{stderr};
 use std::fmt;
 use std::clone::Clone;
 use strum_macros::EnumDiscriminants;
 use crate::interpreter::Object;
 
+//is this enum necessary
 #[enumeration(rename_all = "snake_case")]
 #[derive(Debug, Clone, PartialEq, enum_utils::FromStr)]
 pub enum Keyword {
@@ -86,6 +85,16 @@ impl fmt::Display for Token {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum ScannerErrorReason {
+    UnexpectedCharacter,
+    UnterminatedString,
+    InvalidNumber,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScannerError(usize, ScannerErrorReason);
+
 pub struct Scanner {
     source: String,
     pub tokens: Vec<Token>,
@@ -98,9 +107,9 @@ pub struct Scanner {
 macro_rules! match_char {
     ($self:ident, $char:expr, $if_true:expr, $if_false:expr) => {
         if $self.match_char($char) {
-            $self.add_token($if_true)
+            Ok(Some($self.make_token($if_true)))
         } else {
-            $self.add_token($if_false)
+            Ok(Some($self.make_token($if_false)))
         }
     };
 }
@@ -117,27 +126,31 @@ impl Scanner {
         }
     }
 
-    pub fn scan_tokens(&mut self) {
+    pub fn scan_tokens(&mut self) -> Result<&Vec<Token>, ScannerError> {
         while !self.is_at_end() {
             self.start = self.current;
-            self.scan_token();
+            let token = self.scan_token()?;
+            if let Some(token) = token {
+                self.tokens.push(token);
+            }
         }
 
         self.tokens.push(Token::new(TokenType::Eof, "".to_string(), self.line));
+        Ok(&self.tokens)
     }
 
-    fn scan_token(&mut self) {
+    fn scan_token(&mut self) -> Result<Option<Token>,ScannerError> {
         let c = self.advance();
         match c {
-            '(' => self.add_token(TokenType::LeftParen),
-            ')' => self.add_token(TokenType::RightParen),
-            '{' => self.add_token(TokenType::LeftBrace),
-            '}' => self.add_token(TokenType::RightBrace),
-            ',' => self.add_token(TokenType::Comma),
-            '.' => self.add_token(TokenType::Dot),
-            '-' => self.add_token(TokenType::Minus),
-            '+' => self.add_token(TokenType::Plus),
-            '*' => self.add_token(TokenType::Star),
+            '(' => Ok(Some(self.make_token(TokenType::LeftParen))),
+            ')' => Ok(Some(self.make_token(TokenType::RightParen))),
+            '{' => Ok(Some(self.make_token(TokenType::LeftBrace))),
+            '}' => Ok(Some(self.make_token(TokenType::RightBrace))),
+            ',' => Ok(Some(self.make_token(TokenType::Comma))),
+            '.' => Ok(Some(self.make_token(TokenType::Dot))),
+            '-' => Ok(Some(self.make_token(TokenType::Minus))),
+            '+' => Ok(Some(self.make_token(TokenType::Plus))),
+            '*' => Ok(Some(self.make_token(TokenType::Star))),
             '!' => match_char!(self, '=', TokenType::BangEqual, TokenType::Bang),
             '=' => match_char!(self, '=', TokenType::EqualEqual, TokenType::Equal),
             '<' => match_char!(self, '=', TokenType::LessEqual, TokenType::Less),
@@ -147,27 +160,31 @@ impl Scanner {
                     while self.peek() != '\n' && !self.is_at_end() {
                         self.advance();
                     }
+                    Ok(None)
                 } else {
-                    self.add_token(TokenType::Slash)
+                    Ok(Some(self.make_token(TokenType::Slash)))
                 }
             },
-            ';' => self.add_token(TokenType::Semicolon),
+            ';' => Ok(Some(self.make_token(TokenType::Semicolon))),
             '"' => self.string(),
-            ' ' | '\r' | '\t' => {},
-            '\n' => self.line += 1,
+            ' ' | '\r' | '\t' => { Ok(None) },
+            '\n' => {
+                self.line += 1;
+                Ok(None)
+            },
             _  => {
                 if self.is_digit(c) {
-                    self.number();
+                    self.number()
                 } else if self.is_alpha(c) {
-                    self.identifier();
+                    self.identifier()
                 } else {
-                    self.error(self.line, "Unexpected character");
+                    Err(ScannerError(self.line, ScannerErrorReason::UnexpectedCharacter))
                 }
             }
         }
     }
 
-    fn identifier(&mut self) {
+    fn identifier(&mut self) -> Result<Option<Token>,ScannerError> {
         loop {
             let c = self.peek();
             if !self.is_alphanumeric(c) {
@@ -179,13 +196,13 @@ impl Scanner {
         let value = self.source_iter[self.start..self.current].iter().collect::<String>();
         let keyword = value.parse::<Keyword>();
         if keyword.is_ok() {
-            self.add_token(TokenType::Keyword(keyword.unwrap()))
+            Ok(Some(self.make_token(TokenType::Keyword(keyword.unwrap()))))
         } else {
-            self.add_token(TokenType::Identifier(value))
+            Ok(Some(self.make_token(TokenType::Identifier(value))))
         }
     }
 
-    fn string(&mut self) {
+    fn string(&mut self) -> Result<Option<Token>,ScannerError> {
         while self.peek() != '"' && !self.is_at_end() {
             if self.peek() == '\n' {
                 self.line += 1;
@@ -194,16 +211,15 @@ impl Scanner {
         }
 
         if self.is_at_end() {
-            self.error(self.line, "Unterminated string");
-            return
+            return Err(ScannerError(self.line, ScannerErrorReason::UnterminatedString))
         }
 
         self.advance();
         let value = self.source_iter[self.start+1..self.current-1].iter().collect::<String>();
-        self.add_token(TokenType::String(Object::String(value)))
+        Ok(Some(self.make_token(TokenType::String(Object::String(value)))))
     }
 
-    fn number(&mut self) {
+    fn number(&mut self) -> Result<Option<Token>,ScannerError> {
         loop {
             let c = self.peek();
             if !self.is_digit(c) {
@@ -225,7 +241,9 @@ impl Scanner {
         }
 
         let value = self.source_iter[self.start..self.current].iter().collect::<String>();
-        self.add_token(TokenType::Number(Object::Number(value.parse::<f64>().unwrap())));
+        Ok(Some(self.make_token(TokenType::Number(Object::Number(value.parse::<f64>()
+                .map_err(|_| ScannerError(self.line, ScannerErrorReason::InvalidNumber))?
+        )))))
     }
 
     fn is_alpha(&self, c: char) -> bool {
@@ -274,21 +292,13 @@ impl Scanner {
         self.source_iter[self.current-1] //TODO this is very bad
     }
 
-    fn add_token(&mut self, token_type: TokenType) {
-        let text = self.source_iter[self.start..self.current].iter().collect::<String>();
-        self.tokens.push(Token::new(token_type, text, self.line))
+    fn make_token(&mut self, token_type: TokenType) -> Token {
+        Token::new(token_type, 
+           self.source_iter[self.start..self.current].iter().collect::<String>(), 
+           self.line)
     }
 
     fn is_at_end(&self) -> bool {
         self.current >= self.source_iter.len()
-    }
-
-    fn error(&self, line: usize, msg: &str) {
-        self.report(line, "", msg)
-    }
-
-    fn report(&self, line: usize, err_where: &str, msg: &str) {
-        let s: String = format!("[line {}] Error {}: {}", line, err_where, msg);
-        stderr().write_all(s.as_bytes()).unwrap();
     }
 }

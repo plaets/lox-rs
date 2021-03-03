@@ -1,5 +1,5 @@
 use std::io::prelude::*;
-use std::io::{stdin, stdout};
+use std::io::{stdin, stdout, stderr};
 use std::env;
 use std::fs::File;
 use std::path::Path;
@@ -11,22 +11,35 @@ use parser::*;
 mod interpreter;
 use interpreter::*;
 
+fn error(line: usize, msg: &str) {
+    report(line, "", msg)
+}
+
+fn report(line: usize, err_where: &str, msg: &str) {
+    let s: String = format!("[line {}] Error {}: {}", line, err_where, msg);
+    stderr().write_all(s.as_bytes()).unwrap();
+}
+
 fn run(data: &str) {
     let mut scanner = Scanner::new(data.to_string());
-    scanner.scan_tokens();
-    let mut parser = Parser::new(scanner.tokens.clone());
-    let tree = parser.parse();
-    let mut interpreter = Interpreter::new();
-    match tree {
-        Ok(t) => {
-            let res = interpreter.interpret(&t);
-            if let Ok(Some(res)) = res {
-                println!("{}", res);
-            } else {
-                println!("{:?}", res);
-            }
-        },
-        Err(e) => println!("parse error: {:#?}", e),
+    let tokens = scanner.scan_tokens();
+    if let Ok(tokens) = tokens {
+        let mut parser = Parser::new(scanner.tokens.clone());
+        let tree = parser.parse();
+        let mut interpreter = Interpreter::new();
+        match tree {
+            Ok(t) => {
+                let res = interpreter.interpret(&t);
+                if let Ok(Some(res)) = res {
+                    println!("{}", res);
+                } else {
+                    println!("{:?}", res);
+                }
+            },
+            Err(e) => println!("parse error: {:#?}", e),
+        }
+    } else {
+        println!("scanner error: {:#?}", tokens);
     }
     //println!("{:?}", scanner.tokens.iter().map(|t| t.token_type.clone()).collect::<Vec<TokenType>>());
     //println!("{:#?}", tree);

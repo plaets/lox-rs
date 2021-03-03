@@ -1,4 +1,5 @@
 use std::fmt;
+use std::collections::HashMap;
 use strum_macros::EnumDiscriminants;
 use crate::lexer::{Token, TokenType, TokenTypeDiscriminants, Keyword};
 use crate::parser::{Expr,Stmt};
@@ -17,17 +18,6 @@ pub enum OperationType {
     EqualEqual,
 }
 
-#[derive(Debug, Clone)]
-pub struct InterpreterError(pub Token, pub InterpreterErrorReason);
-
-#[derive(Debug, Clone)]
-pub enum InterpreterErrorReason {
-    NotALiteral,
-    InvalidBinaryOperands(ObjectDiscriminants, OperationType, ObjectDiscriminants),
-    InvalidUnaryOperand(OperationType, ObjectDiscriminants),
-    InvalidOperator(TokenTypeDiscriminants)
-}
-
 #[derive(Debug, Clone, PartialEq, EnumDiscriminants)]
 pub enum Object {
     Nil,
@@ -35,19 +25,6 @@ pub enum Object {
     String(String),
     Number(f64),
 }
-
-impl fmt::Display for Object {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Object::Nil => write!(f, "nil"),
-            Object::Bool(val) => write!(f, "{}", val),
-            Object::String(val) => write!(f, "\"{}\"", val),
-            Object::Number(val) => write!(f, "{}", val),
-        }
-    }
-}
-
-pub struct Interpreter;
 
 macro_rules! number_bin_op {
     ($fn:ident,$op:tt,$obj:ident,$op_type:path) => {
@@ -107,13 +84,50 @@ impl Object {
     number_bin_op!(leq, <=, Bool, OperationType::Leq);
 }
 
+impl fmt::Display for Object {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Object::Nil => write!(f, "nil"),
+            Object::Bool(val) => write!(f, "{}", val),
+            Object::String(val) => write!(f, "\"{}\"", val),
+            Object::Number(val) => write!(f, "{}", val),
+        }
+    }
+}
+
+struct Environment {
+    values: HashMap<String, Object>,
+}
+
+impl Environment {
+    fn new() -> Self {
+        Self {
+            values: HashMap::new()
+        }
+    }
+
+    fn define(&mut self, name: String, val: Object) {
+        self.values.insert(name, val);
+    }
+
+    fn get(&self, name: &String) -> Option<&Object> {
+        self.values.get(name)
+    }
+}
+
+pub struct Interpreter {
+    env: Environment,
+}
+
 macro_rules! map_int_err {
     ($e:expr,$token:ident) => { ($e).map_err(|e| InterpreterError($token.clone(), e)) }
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self {}
+        Self { 
+            env: Environment::new(),
+        }
     }
 
     pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<Option<Object>,InterpreterError> {
@@ -125,15 +139,28 @@ impl Interpreter {
     }
 
     fn execute(&mut self, stmt: &Stmt) -> Result<Option<Object>,InterpreterError> {
-        Ok(match stmt {
-            Stmt::Expr(expr) => Some(self.evaluate(expr)?),
-            Stmt::Print(expr) => self.exec_print(expr)?,
-        })
+        match stmt {
+            Stmt::Expr(expr) => Ok(Some(self.evaluate(expr)?)),
+            Stmt::Print(expr) => Ok(self.exec_print(expr)?),
+        }
     }
 
     fn exec_print(&self, expr: &Expr) -> Result<Option<Object>,InterpreterError> {
         println!("{}", self.evaluate(expr)?);
         Ok(None)
+    }
+
+    fn exec_val(&mut self, name: &Token, val: &Option<Expr>) -> Result<Option<Object>,InterpreterError> {
+        if let TokenType::Identifier(name) = &name.token_type {
+            if let Some(expr) = val {
+                self.env.define(name.clone(), self.evaluate(expr)?);
+            } else {
+                self.env.define(name.clone(), Object::Nil);
+            }
+            Ok(None)
+        } else {
+            Err(InterpreterError(name.clone(), InterpreterErrorReason::ExpectedToken(TokenTypeDiscriminants::Identifier)))
+        }
     }
 
     fn evaluate(&self, expr: &Expr) -> Result<Object,InterpreterError> {
@@ -188,4 +215,16 @@ impl Interpreter {
                   InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&op.token_type)))),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct InterpreterError(pub Token, pub InterpreterErrorReason);
+
+#[derive(Debug, Clone)]
+pub enum InterpreterErrorReason {
+    NotALiteral,
+    InvalidBinaryOperands(ObjectDiscriminants, OperationType, ObjectDiscriminants),
+    InvalidUnaryOperand(OperationType, ObjectDiscriminants),
+    InvalidOperator(TokenTypeDiscriminants),
+    ExpectedToken(TokenTypeDiscriminants),
 }
