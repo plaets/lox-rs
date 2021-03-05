@@ -7,6 +7,7 @@ pub enum Stmt {
     Print(Expr),
     Var(Box<Token>, Option<Expr>), //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
     //having tokens here is pretty cool as it allows better error handling 
+    Block(Vec<Stmt>),
 }
 
 #[derive(Debug)]
@@ -57,6 +58,7 @@ impl Parser {
     }
 
     fn declaration(&mut self) -> Result<Stmt,ParseError> {
+        println!("var");
         if self.match_tokens(vec![TokenTypeDiscriminants::Keyword]) {
             if let TokenType::Keyword(k) = self.previous().token_type {
                 if k == Keyword::Var {
@@ -79,11 +81,12 @@ impl Parser {
         if self.match_tokens(vec![TokenTypeDiscriminants::Equal]) {
             init = Some(self.expression()?);
         }
-        self.consume(TokenTypeDiscriminants::Semicolon, ParseErrorReason::ExpectedSemicolon);
+        self.consume(TokenTypeDiscriminants::Semicolon, ParseErrorReason::ExpectedSemicolon)?;
         Ok(Stmt::Var(Box::new(name), init))
     }
 
     fn statement(&mut self) -> Result<Stmt,ParseError> {
+        println!("stmt");
         if self.match_tokens(vec![TokenTypeDiscriminants::Keyword]) {
             if let TokenType::Keyword(k) = &self.previous().token_type {
                 return match k {
@@ -91,8 +94,19 @@ impl Parser {
                     _ => Err(ParseError(self.previous(), ParseErrorReason::NotImplemented)),
                 }
             }
-        } 
+        } else if self.match_tokens(vec![TokenTypeDiscriminants::LeftBrace]) {
+            return self.block()
+        }
         self.expr_statement()
+    }
+
+    fn block(&mut self) -> Result<Stmt,ParseError> {
+        let mut stmts: Vec<Stmt> = Vec::new();
+        while !self.check(TokenTypeDiscriminants::RightBrace) && !self.is_at_end() {
+            stmts.push(self.declaration()?);
+        }
+        self.consume(TokenTypeDiscriminants::RightBrace, ParseErrorReason::ExpectedBraceAfterBlock)?;
+        Ok(Stmt::Block(stmts))
     }
 
     fn print_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -173,7 +187,7 @@ impl Parser {
     }
 
     fn match_tokens(&mut self, token_types: Vec<TokenTypeDiscriminants>) -> bool {
-        for t in token_types {
+        for t in token_types.clone() {
             if self.check(t) {
                 self.advance();
                 return true;
@@ -260,6 +274,7 @@ pub enum ParseErrorReason {
     ExpectedExpr,
     ExpectedSemicolon,
     ExpectedVariableName,
+    ExpectedBraceAfterBlock,
     InvalidAssignmentTarget,
     NotImplemented,
     Other(String),

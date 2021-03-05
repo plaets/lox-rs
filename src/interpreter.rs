@@ -96,22 +96,43 @@ impl fmt::Display for Object {
 }
 
 struct Environment {
-    values: HashMap<String, Object>,
+    values: Vec<HashMap<String, Object>>,
 }
 
 impl Environment {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            values: HashMap::new()
+            values: vec![HashMap::new()]
         }
     }
 
-    fn define(&mut self, name: String, val: Object) {
-        self.values.insert(name, val);
+    pub fn define(&mut self, name: String, val: Object) {
+        self.values.last_mut().unwrap().insert(name, val);
     }
 
-    fn get(&self, name: &String) -> Option<&Object> {
-        self.values.get(name)
+    pub fn assign(&mut self, name: String, val: Object) -> Option<Object> {
+        let found = self.values.iter_mut().find(|e| e.contains_key(&name));
+        if let Some(env) = found {
+            Some(env.insert(name, val).unwrap()) //dumb
+        } else {
+            None
+        }
+    }
+
+    pub fn get(&self, name: &String) -> Option<&Object> {
+        self.values.iter().find_map(|e| e.get(name))
+    }
+
+    pub fn push(&mut self) {
+        self.values.push(HashMap::new());
+    }
+
+    pub fn pop(&mut self) -> Option<HashMap<String, Object>> {
+        if self.values.len() > 1 {
+            self.values.pop()
+        } else {
+            None
+        }
     }
 }
 
@@ -131,6 +152,7 @@ impl Interpreter {
     }
 
     pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<Option<Object>,InterpreterError> {
+        println!("{:#?}", statements);
         let mut res: Option<Object> = None;
         for stmt in statements {
             res = self.execute(&stmt)?;
@@ -142,18 +164,21 @@ impl Interpreter {
         match stmt {
             Stmt::Expr(expr) => Ok(Some(self.evaluate(expr)?)),
             Stmt::Print(expr) => Ok(self.exec_print(expr)?),
+            Stmt::Var(name, expr) => Ok(self.exec_var(name, expr)?),
+            Stmt::Block(stmts) => Ok(self.exec_block(stmts)?),
         }
     }
 
-    fn exec_print(&self, expr: &Expr) -> Result<Option<Object>,InterpreterError> {
+    fn exec_print(&mut self, expr: &Expr) -> Result<Option<Object>,InterpreterError> {
         println!("{}", self.evaluate(expr)?);
         Ok(None)
     }
 
-    fn exec_val(&mut self, name: &Token, val: &Option<Expr>) -> Result<Option<Object>,InterpreterError> {
+    fn exec_var(&mut self, name: &Token, val: &Option<Expr>) -> Result<Option<Object>,InterpreterError> {
         if let TokenType::Identifier(name) = &name.token_type {
             if let Some(expr) = val {
-                self.env.define(name.clone(), self.evaluate(expr)?);
+                let value = self.evaluate(expr)?;
+                self.env.define(name.clone(), value);
             } else {
                 self.env.define(name.clone(), Object::Nil);
             }
@@ -163,16 +188,28 @@ impl Interpreter {
         }
     }
 
-    fn evaluate(&self, expr: &Expr) -> Result<Object,InterpreterError> {
+    fn exec_block(&mut self, stmts: &Vec<Stmt>) -> Result<Option<Object>,InterpreterError> {
+        self.env.push();
+        let mut last_val: Option<Object> = None;
+        for stmt in stmts {
+            last_val = self.execute(stmt)?;
+        }
+        self.env.pop().unwrap();
+        Ok(last_val)
+    }
+
+    fn evaluate(&mut self, expr: &Expr) -> Result<Object,InterpreterError> {
         match expr {
             Expr::Literal(token) => self.get_object(&token),
             Expr::Grouping(expr) => self.evaluate(&expr),
             Expr::Unary(token, expr) => self.evaluate_unary(token, expr),
             Expr::Binary(left, op, right) => self.evaluate_binary(left, op, right),
+            Expr::Assign(name, expr) => self.evaluate_assign(name, expr),
+            Expr::Variable(name) => self.evaluate_variable(name),
         }
     }
 
-    fn get_object(&self, token: &Token) -> Result<Object,InterpreterError> {
+    fn get_object(&mut self, token: &Token) -> Result<Object,InterpreterError> {
         match &token.token_type {
             TokenType::Keyword(k) => match k {
                 Keyword::True => Ok(Object::Bool(true)),
@@ -186,7 +223,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate_unary(&self, token: &Token, expr: &Expr) -> Result<Object,InterpreterError> {
+    fn evaluate_unary(&mut self, token: &Token, expr: &Expr) -> Result<Object,InterpreterError> {
         let right = self.evaluate(expr)?;
 
         match &token.token_type {
@@ -196,7 +233,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate_binary(&self, left: &Expr, op: &Token, right: &Expr) -> Result<Object,InterpreterError> {
+    fn evaluate_binary(&mut self, left: &Expr, op: &Token, right: &Expr) -> Result<Object,InterpreterError> {
         let left = self.evaluate(left)?;
         let right = self.evaluate(right)?;
 
@@ -215,6 +252,22 @@ impl Interpreter {
                   InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&op.token_type)))),
         }
     }
+
+    fn evaluate_variable(&mut self, name: &Token) -> Result<Object,InterpreterError> {
+        self.env.get(&name.lexeme).map_or(
+            Err(InterpreterError(name.clone(), InterpreterErrorReason::UndefinedVariable)),
+            |v| Ok(v.clone())
+        )
+    }
+
+    fn evaluate_assign(&mut self, name: &Token, expr: &Expr) -> Result<Object,InterpreterError> {
+        let value = self.evaluate(expr)?;
+        if let Some(_) = self.env.assign(name.lexeme.clone(), value.clone()) {
+            Ok(value)
+        } else {
+            Err(InterpreterError(name.clone(), InterpreterErrorReason::UndefinedVariable))
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -223,6 +276,7 @@ pub struct InterpreterError(pub Token, pub InterpreterErrorReason);
 #[derive(Debug, Clone)]
 pub enum InterpreterErrorReason {
     NotALiteral,
+    UndefinedVariable,
     InvalidBinaryOperands(ObjectDiscriminants, OperationType, ObjectDiscriminants),
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),

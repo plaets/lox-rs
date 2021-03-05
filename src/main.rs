@@ -23,7 +23,7 @@ fn report(line: usize, err_where: &str, msg: &str) {
 fn run(data: &str) {
     let mut scanner = Scanner::new(data.to_string());
     let tokens = scanner.scan_tokens();
-    if let Ok(tokens) = tokens {
+    if let Ok(_tokens) = tokens {
         let mut parser = Parser::new(scanner.tokens.clone());
         let tree = parser.parse();
         let mut interpreter = Interpreter::new();
@@ -31,7 +31,7 @@ fn run(data: &str) {
             Ok(t) => {
                 let res = interpreter.interpret(&t);
                 if let Ok(Some(res)) = res {
-                    println!("{}", res);
+                    //println!("{}", res);
                 } else {
                     println!("{:?}", res);
                 }

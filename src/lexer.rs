@@ -87,7 +87,7 @@ impl fmt::Display for Token {
 
 #[derive(Debug, Clone)]
 pub enum ScannerErrorReason {
-    UnexpectedCharacter,
+    UnexpectedCharacter(char),
     UnterminatedString,
     InvalidNumber,
 }
@@ -178,7 +178,7 @@ impl Scanner {
                 } else if self.is_alpha(c) {
                     self.identifier()
                 } else {
-                    Err(ScannerError(self.line, ScannerErrorReason::UnexpectedCharacter))
+                    Err(ScannerError(self.line, ScannerErrorReason::UnexpectedCharacter(c)))
                 }
             }
         }
