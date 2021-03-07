@@ -1,14 +1,16 @@
 use std::fmt;
+use strum_macros::EnumDiscriminants;
 use crate::lexer::*;
 
-#[derive(Debug)]
+#[derive(Debug,EnumDiscriminants)]
 pub enum Stmt {
     Expr(Expr),
-    If(Box<Expr>, Box<Stmt>, Option<Box<Stmt>>),
+    If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     Print(Expr),
-    While(Box<Expr>, Box<Stmt>),
+    While(Expr, Box<Stmt>),
     Var(Box<Token>, Option<Expr>), //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
     //having tokens here is pretty cool as it allows better error handling 
+    Break(Box<Token>),
     Block(Vec<Stmt>),
 }
 
@@ -23,8 +25,23 @@ pub enum Expr {
     Assign(Box<Token>, Box<Expr>),
 }
 
+#[derive(PartialEq,Eq)]
+enum BreakStmts {
+    While,
+    //nothing else for now, this enum is needed (i think?) because some types of statements with
+    //blocks do not support breaks... i cant put it into words well but for an example: 
+    //while true {
+    // var f = function() {
+    //  break; //this should be invalid, in the future function statement (expression? ...) will
+    //  //push BreakStmts::Function onto break_stack and parse_break will return an error if it
+    //  //encounters BreakStmts::Function before BreakStmts::While
+    // }
+    //}
+}
+
 pub struct Parser {
     tokens: Vec<Token>,
+    break_stack: Vec<BreakStmts>,
     pos: usize,
 }
 
@@ -57,6 +74,7 @@ impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         Self {
             tokens,
+            break_stack: Vec::new(),
             pos: 0
         }
     }
@@ -96,6 +114,8 @@ impl Parser {
             self.print_statement()
         } else if self.match_keyword(Keyword::While) {
             self.while_statement()
+        } else if self.match_keyword(Keyword::Break) {
+            self.break_statement()
         } else if self.match_tokens(vec![TokenTypeDiscriminants::LeftBrace]) {
             self.block()
         } else {
@@ -124,7 +144,7 @@ impl Parser {
             else_branch = Some(self.statement()?);
         }
 
-        Ok(Stmt::If(Box::new(condition), Box::new(then_branch), else_branch.map(|v| Box::new(v))))
+        Ok(Stmt::If(condition, Box::new(then_branch), else_branch.map(|v| Box::new(v))))
     }
 
     fn for_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -152,7 +172,9 @@ impl Parser {
 
         self.consume(TokenTypeDiscriminants::RightParen, None)?;
 
+        self.break_stack.push(BreakStmts::While);
         let mut body = self.statement()?;
+        self.break_stack.pop();
 
         if let Some(inc) = inc {
             body = Stmt::Block(vec![
@@ -162,11 +184,11 @@ impl Parser {
         }
 
         if let Some(cond) = cond {
-            body = Stmt::While(Box::new(cond), Box::new(body));
+            body = Stmt::While(cond, Box::new(body));
         } else {
-            body = Stmt::While(Box::new(Expr::Literal(
-                        Box::new(Token::new(TokenType::Keyword(Keyword::True), "true".to_string(), 0))
-                    )), Box::new(body));
+            body = Stmt::While(Expr::Literal(
+                       Box::new(Token::new(TokenType::Keyword(Keyword::True), "true".to_string(), 0))
+                   ), Box::new(body));
         }
 
         if let Some(init) = init {
@@ -189,8 +211,20 @@ impl Parser {
         self.consume(TokenTypeDiscriminants::LeftParen, None)?;
         let cond = self.expression()?;
         self.consume(TokenTypeDiscriminants::RightParen, None)?;
+        self.break_stack.push(BreakStmts::While);
         let body = self.statement()?;
-        Ok(Stmt::While(Box::new(cond), Box::new(body)))
+        self.break_stack.pop();
+        Ok(Stmt::While(cond, Box::new(body)))
+    }
+
+    fn break_statement(&mut self) -> Result<Stmt,ParseError> {
+        self.advance();
+        if let Some(stmt) = self.break_stack.iter().last() {
+            if *stmt == BreakStmts::While {
+                return Ok(Stmt::Break(Box::new(self.previous())))
+            } 
+        } 
+        Err(ParseError(self.previous().clone(), ParseErrorReason::InvalidBreak))
     }
 
     fn expr_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -385,6 +419,7 @@ pub enum ParseErrorReason {
     ExpectedToken(TokenTypeDiscriminants),
     ExpectedExpr,
     ExpectedVariableName,
+    InvalidBreak,
     InvalidAssignmentTarget,
     NotImplemented,
     Other(String),

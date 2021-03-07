@@ -8,6 +8,7 @@ use crate::interpreter::Object;
 #[derive(Debug, Clone, PartialEq, enum_utils::FromStr)]
 pub enum Keyword {
     And,
+    Break,
     Class,
     Else,
     False,

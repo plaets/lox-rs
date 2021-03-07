@@ -1,0 +1,19 @@
+while(true) {
+    break;
+}
+
+var i = 0; 
+while(true) {
+    i = i+1;
+    print i;
+    if(i == 5) {
+        break;
+    }
+}
+
+for(var j = 0; j != 5; j = j+1) {
+    print j;
+    if(j == 10) {
+        break;
+    }
+}
