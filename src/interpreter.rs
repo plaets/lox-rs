@@ -7,6 +7,7 @@ use crate::parser::{Expr,Stmt};
 #[derive(Debug, Clone, Copy)]
 pub enum OperationType {
     Neg,
+    Not,
     Add,
     Sub,
     Mul,
@@ -52,6 +53,14 @@ impl Object {
         match self {
             Object::Number(num) => Ok(Object::Number(-num)),
             _ => Err(InterpreterErrorReason::InvalidUnaryOperand(OperationType::Neg, 
+                     ObjectDiscriminants::from(self))),
+        }
+    }
+
+    pub fn not(&self) -> Result<Self,InterpreterErrorReason> {
+        match self {
+            Object::Bool(val) => Ok(Object::Bool(!val)),
+            _ => Err(InterpreterErrorReason::InvalidUnaryOperand(OperationType::Not, 
                      ObjectDiscriminants::from(self))),
         }
     }
@@ -163,14 +172,33 @@ impl Interpreter {
     fn execute(&mut self, stmt: &Stmt) -> Result<Option<Object>,InterpreterError> {
         match stmt {
             Stmt::Expr(expr) => Ok(Some(self.evaluate(expr)?)),
+            Stmt::If(cond, thenb, elseb) => Ok(self.exec_if(cond, thenb, elseb.as_ref().map(|v| v.as_ref()))?),
             Stmt::Print(expr) => Ok(self.exec_print(expr)?),
+            Stmt::While(cond, body) => Ok(self.exec_while(cond, body)?),
             Stmt::Var(name, expr) => Ok(self.exec_var(name, expr)?),
             Stmt::Block(stmts) => Ok(self.exec_block(stmts)?),
         }
     }
 
+    fn exec_if(&mut self, cond: &Expr, thenb: &Stmt, elseb: Option<&Stmt>) -> Result<Option<Object>,InterpreterError> {
+        if self.evaluate(cond)?.is_truthy() {
+            self.execute(thenb)
+        } else if let Some(elseb) = elseb {
+            self.execute(elseb)
+        } else {
+            Ok(None)
+        }
+    }
+
     fn exec_print(&mut self, expr: &Expr) -> Result<Option<Object>,InterpreterError> {
         println!("{}", self.evaluate(expr)?);
+        Ok(None)
+    }
+
+    fn exec_while(&mut self, cond: &Expr, body: &Stmt) -> Result<Option<Object>,InterpreterError> {
+        while self.evaluate(cond)?.is_truthy() {
+            self.execute(body)?;
+        }
         Ok(None)
     }
 
@@ -203,6 +231,7 @@ impl Interpreter {
             Expr::Literal(token) => self.get_object(&token),
             Expr::Grouping(expr) => self.evaluate(&expr),
             Expr::Unary(token, expr) => self.evaluate_unary(token, expr),
+            Expr::Logical(left, op, right) => self.evaluate_logical(left, op, right),
             Expr::Binary(left, op, right) => self.evaluate_binary(left, op, right),
             Expr::Assign(name, expr) => self.evaluate_assign(name, expr),
             Expr::Variable(name) => self.evaluate_variable(name),
@@ -233,6 +262,21 @@ impl Interpreter {
         }
     }
 
+    fn evaluate_logical(&mut self, left: &Expr, op: &Keyword, right: &Expr) -> Result<Object,InterpreterError> {
+        let left = self.evaluate(left)?;
+        if *op == Keyword::Or {
+            if left.is_truthy() {
+                return Ok(left)
+            }
+        } else if *op == Keyword::And {
+            if !left.is_truthy() {
+                return Ok(left)
+            }
+        } 
+
+        self.evaluate(right)
+    }
+
     fn evaluate_binary(&mut self, left: &Expr, op: &Token, right: &Expr) -> Result<Object,InterpreterError> {
         let left = self.evaluate(left)?;
         let right = self.evaluate(right)?;
@@ -247,7 +291,7 @@ impl Interpreter {
             TokenType::GreaterEqual => map_int_err!(left.geq(&right), op),
             TokenType::Greater => map_int_err!(left.greater(&right), op),
             TokenType::EqualEqual => map_int_err!(left.equal(&right), op),
-            TokenType::BangEqual => map_int_err!(map_int_err!(left.equal(&right), op)?.neg(), op),
+            TokenType::BangEqual => map_int_err!(left.equal(&right), op).and_then(|v| map_int_err!(v.not(), op)),
             _ => Err(InterpreterError(op.clone(), 
                   InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&op.token_type)))),
         }

@@ -4,7 +4,9 @@ use crate::lexer::*;
 #[derive(Debug)]
 pub enum Stmt {
     Expr(Expr),
+    If(Box<Expr>, Box<Stmt>, Option<Box<Stmt>>),
     Print(Expr),
+    While(Box<Expr>, Box<Stmt>),
     Var(Box<Token>, Option<Expr>), //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
     //having tokens here is pretty cool as it allows better error handling 
     Block(Vec<Stmt>),
@@ -16,6 +18,7 @@ pub enum Expr {
     Variable(Box<Token>),
     Grouping(Box<Expr>),
     Unary(Box<Token>, Box<Expr>),
+    Logical(Box<Expr>, Box<Keyword>, Box<Expr>),
     Binary(Box<Expr>, Box<Token>, Box<Expr>),
     Assign(Box<Token>, Box<Expr>),
 }
@@ -75,18 +78,24 @@ impl Parser {
     }
 
     fn var_declaration(&mut self) -> Result<Stmt,ParseError> {
-        let name = self.consume(TokenTypeDiscriminants::Identifier, ParseErrorReason::ExpectedVariableName)?;
+        let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedVariableName))?;
         let mut init: Option<Expr> = None;
         if self.match_tokens(vec![TokenTypeDiscriminants::Equal]) {
             init = Some(self.expression()?);
         }
-        self.consume(TokenTypeDiscriminants::Semicolon, ParseErrorReason::ExpectedSemicolon)?;
+        self.consume(TokenTypeDiscriminants::Semicolon, None)?;
         Ok(Stmt::Var(Box::new(name), init))
     }
 
     fn statement(&mut self) -> Result<Stmt,ParseError> {
-        if self.match_keyword(Keyword::Print) {
+        if self.match_keyword(Keyword::If) {
+            self.if_statement()
+        } else if self.match_keyword(Keyword::For) {
+            self.for_statement()
+        } else if self.match_keyword(Keyword::Print) {
             self.print_statement()
+        } else if self.match_keyword(Keyword::While) {
+            self.while_statement()
         } else if self.match_tokens(vec![TokenTypeDiscriminants::LeftBrace]) {
             self.block()
         } else {
@@ -100,19 +109,93 @@ impl Parser {
         while !self.check(TokenTypeDiscriminants::RightBrace) && !self.is_at_end() {
             stmts.push(self.declaration()?);
         }
-        self.consume(TokenTypeDiscriminants::RightBrace, ParseErrorReason::ExpectedBraceAfterBlock)?;
+        self.consume(TokenTypeDiscriminants::RightBrace, None)?;
         Ok(Stmt::Block(stmts))
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt,ParseError> {
+        self.consume(TokenTypeDiscriminants::LeftParen, None)?;
+        let condition = self.expression()?;
+        self.consume(TokenTypeDiscriminants::RightParen, None)?;
+
+        let then_branch = self.statement()?;
+        let mut else_branch: Option<Stmt> = None;
+        if self.match_keyword(Keyword::Else) {
+            else_branch = Some(self.statement()?);
+        }
+
+        Ok(Stmt::If(Box::new(condition), Box::new(then_branch), else_branch.map(|v| Box::new(v))))
+    }
+
+    fn for_statement(&mut self) -> Result<Stmt,ParseError> {
+        self.consume(TokenTypeDiscriminants::LeftParen, None)?;
+
+        let mut init: Option<Stmt> = None;
+        if self.match_tokens(vec![TokenTypeDiscriminants::Semicolon]) {
+            init = None;
+        } else if self.match_keyword(Keyword::Var) {
+            init = Some(self.var_declaration()?);
+        } else {
+            init = Some(self.expr_statement()?);
+        }
+
+        let mut cond: Option<Expr> = None; 
+        if !self.check(TokenTypeDiscriminants::Semicolon) {
+            cond = Some(self.expression()?);
+        }
+        self.consume(TokenTypeDiscriminants::Semicolon, None)?;
+
+        let mut inc: Option<Expr> = None;
+        if !self.check(TokenTypeDiscriminants::RightParen) {
+            inc = Some(self.expression()?);
+        }
+
+        self.consume(TokenTypeDiscriminants::RightParen, None)?;
+
+        let mut body = self.statement()?;
+
+        if let Some(inc) = inc {
+            body = Stmt::Block(vec![
+                body,
+                Stmt::Expr(inc),
+            ]);
+        }
+
+        if let Some(cond) = cond {
+            body = Stmt::While(Box::new(cond), Box::new(body));
+        } else {
+            body = Stmt::While(Box::new(Expr::Literal(
+                        Box::new(Token::new(TokenType::Keyword(Keyword::True), "true".to_string(), 0))
+                    )), Box::new(body));
+        }
+
+        if let Some(init) = init {
+            body = Stmt::Block(vec![
+                init,
+                body,
+            ])
+        }
+
+        Ok(body)
     }
 
     fn print_statement(&mut self) -> Result<Stmt,ParseError> {
         let expr = self.expression()?;
-        self.consume(TokenTypeDiscriminants::Semicolon, ParseErrorReason::ExpectedSemicolon)?;
+        self.consume(TokenTypeDiscriminants::Semicolon, None)?;
         Ok(Stmt::Print(expr))
+    }
+
+    fn while_statement(&mut self) -> Result<Stmt,ParseError> {
+        self.consume(TokenTypeDiscriminants::LeftParen, None)?;
+        let cond = self.expression()?;
+        self.consume(TokenTypeDiscriminants::RightParen, None)?;
+        let body = self.statement()?;
+        Ok(Stmt::While(Box::new(cond), Box::new(body)))
     }
 
     fn expr_statement(&mut self) -> Result<Stmt,ParseError> {
         let value = self.expression()?;
-        self.consume(TokenTypeDiscriminants::Semicolon, ParseErrorReason::ExpectedSemicolon)?;
+        self.consume(TokenTypeDiscriminants::Semicolon, None)?;
         Ok(Stmt::Expr(value))
     }
 
@@ -121,7 +204,7 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> Result<Expr,ParseError> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
         if self.match_tokens(vec![TokenTypeDiscriminants::Equal]) {
             let equals = self.previous();
             let value = self.assignment()?;
@@ -130,6 +213,28 @@ impl Parser {
             } else {
                 Err(ParseError(equals, ParseErrorReason::InvalidAssignmentTarget))
             }
+        } else {
+            Ok(expr)
+        }
+    }
+
+    fn or(&mut self) -> Result<Expr,ParseError> {
+        let expr = self.and()?;
+        if self.match_keyword(Keyword::Or) {
+            let op = self.previous();
+            let right = self.and()?;
+            Ok(Expr::Logical(Box::new(expr), Box::new(Keyword::Or), Box::new(right)))
+        } else {
+            Ok(expr)
+        }
+    }
+
+    fn and(&mut self) -> Result<Expr,ParseError> {
+        let expr = self.equality()?;
+        if self.match_keyword(Keyword::And) {
+            let op = self.previous();
+            let right = self.equality()?;
+            Ok(Expr::Logical(Box::new(expr), Box::new(Keyword::And), Box::new(right)))
         } else {
             Ok(expr)
         }
@@ -174,7 +279,7 @@ impl Parser {
 
         if self.match_tokens(vec![TokenTypeDiscriminants::LeftParen]) {
             let expr = self.expression()?;
-            self.consume(TokenTypeDiscriminants::RightParen, ParseErrorReason::ExpectedParen)?;
+            self.consume(TokenTypeDiscriminants::Semicolon, None)?;
             return Ok(Expr::Grouping(Box::new(expr)))
         }
 
@@ -230,11 +335,11 @@ impl Parser {
         }
     }
 
-    fn consume(&mut self, token_type: TokenTypeDiscriminants, reason: ParseErrorReason) -> Result<Token, ParseError> {
+    fn consume(&mut self, token_type: TokenTypeDiscriminants, reason: Option<ParseErrorReason>) -> Result<Token, ParseError> {
         if self.check(token_type) {
             Ok(self.advance())
         } else {
-            Err(ParseError(self.peek(), reason))
+            Err(ParseError(self.peek(), reason.or(Some(ParseErrorReason::ExpectedToken(token_type))).unwrap()))
         }
     }
 
@@ -277,11 +382,9 @@ impl Parser {
 
 #[derive(Debug, Clone)]
 pub enum ParseErrorReason {
-    ExpectedParen,
+    ExpectedToken(TokenTypeDiscriminants),
     ExpectedExpr,
-    ExpectedSemicolon,
     ExpectedVariableName,
-    ExpectedBraceAfterBlock,
     InvalidAssignmentTarget,
     NotImplemented,
     Other(String),
