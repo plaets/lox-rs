@@ -41,6 +41,15 @@ macro_rules! binary {
     }
 }
 
+macro_rules! sync_on_err {
+    ($self:ident,$expr:expr) => {
+        $expr.map_err(|e| {
+            $self.synchronize();
+            e
+        })
+    }
+}
+
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         Self {
@@ -59,15 +68,10 @@ impl Parser {
 
     fn declaration(&mut self) -> Result<Stmt,ParseError> {
         if self.match_keyword(Keyword::Var) {
-            return self.var_declaration().map_err(|e| {
-                self.synchronize();
-                e
-            })
+            sync_on_err!(self, self.var_declaration())
+        } else {
+            sync_on_err!(self, self.statement())
         }
-        self.statement().map_err(|e| {
-            self.synchronize();
-            e
-        })
     }
 
     fn var_declaration(&mut self) -> Result<Stmt,ParseError> {

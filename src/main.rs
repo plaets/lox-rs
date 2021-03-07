@@ -34,19 +34,12 @@ fn run(data: &str, interpreter: &mut Interpreter) {
                 } else if let Ok(Some(r)) = res {
                     println!("{}", r);
                 }
-                //if let Ok(Some(res)) = res {
-                //    println!("{}", res);
-                //} else {
-                //    println!("{:?}", res);
-                //}
             },
             Err(e) => println!("parse error: {:#?}", e),
         }
     } else {
         println!("scanner error: {:#?}", tokens);
     }
-    //println!("{:?}", scanner.tokens.iter().map(|t| t.token_type.clone()).collect::<Vec<TokenType>>());
-    //println!("{:#?}", tree);
 }
 
 fn run_file(path: &str) -> Result<(), std::io::Error> {
