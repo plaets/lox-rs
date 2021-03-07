@@ -58,16 +58,11 @@ impl Parser {
     }
 
     fn declaration(&mut self) -> Result<Stmt,ParseError> {
-        println!("var");
-        if self.match_tokens(vec![TokenTypeDiscriminants::Keyword]) {
-            if let TokenType::Keyword(k) = self.previous().token_type {
-                if k == Keyword::Var {
-                    return self.var_declaration().map_err(|e| {
-                        self.synchronize();
-                        e
-                    })
-                } 
-            }
+        if self.match_keyword(Keyword::Var) {
+            return self.var_declaration().map_err(|e| {
+                self.synchronize();
+                e
+            })
         }
         self.statement().map_err(|e| {
             self.synchronize();
@@ -86,18 +81,14 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt,ParseError> {
-        println!("stmt");
-        if self.match_tokens(vec![TokenTypeDiscriminants::Keyword]) {
-            if let TokenType::Keyword(k) = &self.previous().token_type {
-                return match k {
-                    Keyword::Print => self.print_statement(),
-                    _ => Err(ParseError(self.previous(), ParseErrorReason::NotImplemented)),
-                }
-            }
+        if self.match_keyword(Keyword::Print) {
+            self.print_statement()
         } else if self.match_tokens(vec![TokenTypeDiscriminants::LeftBrace]) {
-            return self.block()
+            self.block()
+        } else {
+            self.expr_statement()
         }
-        self.expr_statement()
+        //Err(ParseError(self.previous(), ParseErrorReason::NotImplemented))
     }
 
     fn block(&mut self) -> Result<Stmt,ParseError> {
@@ -196,6 +187,18 @@ impl Parser {
         false
     }
 
+    fn match_keyword(&mut self, keyword: Keyword) -> bool {
+        if self.check(TokenTypeDiscriminants::Keyword) {
+            if let TokenType::Keyword(k) = self.peek().token_type {
+                if k == keyword {
+                    self.advance();
+                    return true;
+                }
+            }
+        } 
+        false
+    }
+
     fn advance(&mut self) -> Token {
         if !self.is_at_end() {
             self.pos += 1
@@ -225,10 +228,10 @@ impl Parser {
 
     fn consume(&mut self, token_type: TokenTypeDiscriminants, reason: ParseErrorReason) -> Result<Token, ParseError> {
         if self.check(token_type) {
-            return Ok(self.advance())
+            Ok(self.advance())
+        } else {
+            Err(ParseError(self.peek(), reason))
         }
-
-        Err(ParseError(self.peek(), reason))
     }
 
     fn synchronize(&mut self) {

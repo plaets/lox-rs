@@ -47,6 +47,7 @@ impl Object {
             Object::Number(n) => *n != 0.0,
         }
     }
+
     pub fn neg(&self) -> Result<Self,InterpreterErrorReason> {
         match self {
             Object::Number(num) => Ok(Object::Number(-num)),
@@ -89,7 +90,7 @@ impl fmt::Display for Object {
         match self {
             Object::Nil => write!(f, "nil"),
             Object::Bool(val) => write!(f, "{}", val),
-            Object::String(val) => write!(f, "\"{}\"", val),
+            Object::String(val) => write!(f, "{}", val),
             Object::Number(val) => write!(f, "{}", val),
         }
     }
@@ -120,7 +121,7 @@ impl Environment {
     }
 
     pub fn get(&self, name: &String) -> Option<&Object> {
-        self.values.iter().find_map(|e| e.get(name))
+        self.values.iter().rev().find_map(|e| e.get(name))
     }
 
     pub fn push(&mut self) {
@@ -152,7 +153,6 @@ impl Interpreter {
     }
 
     pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<Option<Object>,InterpreterError> {
-        println!("{:#?}", statements);
         let mut res: Option<Object> = None;
         for stmt in statements {
             res = self.execute(&stmt)?;

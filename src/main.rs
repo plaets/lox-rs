@@ -20,21 +20,25 @@ fn report(line: usize, err_where: &str, msg: &str) {
     stderr().write_all(s.as_bytes()).unwrap();
 }
 
-fn run(data: &str) {
+fn run(data: &str, interpreter: &mut Interpreter) {
     let mut scanner = Scanner::new(data.to_string());
     let tokens = scanner.scan_tokens();
     if let Ok(_tokens) = tokens {
         let mut parser = Parser::new(scanner.tokens.clone());
         let tree = parser.parse();
-        let mut interpreter = Interpreter::new();
         match tree {
             Ok(t) => {
                 let res = interpreter.interpret(&t);
-                if let Ok(Some(res)) = res {
-                    //println!("{}", res);
-                } else {
-                    println!("{:?}", res);
+                if let Err(r) = res {
+                    println!("{:?}", r);
+                } else if let Ok(Some(r)) = res {
+                    println!("{}", r);
                 }
+                //if let Ok(Some(res)) = res {
+                //    println!("{}", res);
+                //} else {
+                //    println!("{:?}", res);
+                //}
             },
             Err(e) => println!("parse error: {:#?}", e),
         }
@@ -46,20 +50,22 @@ fn run(data: &str) {
 }
 
 fn run_file(path: &str) -> Result<(), std::io::Error> {
+    let mut interpreter = Interpreter::new();
     let mut file = File::open(Path::new(path))?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
-    run(&contents);
+    run(&contents, &mut interpreter);
     Ok(())
 }
 
 fn run_prompt() -> Result<(), std::io::Error> {
+    let mut interpreter = Interpreter::new();
     loop {
         print!("> ");
         stdout().flush()?;
         let mut line = String::new();
         stdin().read_line(&mut line)?;
-        run(&line);
+        run(&line, &mut interpreter);
     }
 }
 
