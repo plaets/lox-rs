@@ -260,19 +260,6 @@ impl Parser {
             self.advance();
         }
     }
-
-    //fn error(&self, token: Token, msg: String) {
-    //    if TokenTypeDiscriminants::from(token.token_type) == TokenTypeDiscriminants::Eof {
-    //        self.report(token.line, "at end", &msg);
-    //    } else {
-    //        self.report(token.line, &(" at '".to_owned() + &token.lexeme + "'"), &msg);
-    //    }
-    //}
-
-    //fn report(&self, line: usize, err_where: &str, msg: &str) {
-    //    let s: String = format!("[line {}] Error {}: {}", line, err_where, msg);
-    //    stderr().write_all(s.as_bytes());
-    //}
 }
 
 #[derive(Debug, Clone)]

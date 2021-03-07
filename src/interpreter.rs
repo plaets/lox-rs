@@ -75,7 +75,6 @@ impl Object {
         }
     }
 
-    //number_bin_op!(add, +, Number, OperationType::Add);
     number_bin_op!(mul, *, Number, OperationType::Mul);
     number_bin_op!(sub, -, Number, OperationType::Sub);
     number_bin_op!(div, /, Number, OperationType::Div);
@@ -97,7 +96,7 @@ impl fmt::Display for Object {
 }
 
 struct Environment {
-    values: Vec<HashMap<String, Object>>,
+    values: Vec<HashMap<String, Option<Object>>>,
 }
 
 impl Environment {
@@ -107,20 +106,20 @@ impl Environment {
         }
     }
 
-    pub fn define(&mut self, name: String, val: Object) {
+    pub fn define(&mut self, name: String, val: Option<Object>) {
         self.values.last_mut().unwrap().insert(name, val);
     }
 
-    pub fn assign(&mut self, name: String, val: Object) -> Option<Object> {
+    pub fn assign(&mut self, name: String, val: Object) -> Option<Option<Object>> {
         let found = self.values.iter_mut().find(|e| e.contains_key(&name));
         if let Some(env) = found {
-            Some(env.insert(name, val).unwrap()) //dumb
+            Some(env.insert(name, Some(val)).unwrap()) //dumb
         } else {
             None
         }
     }
 
-    pub fn get(&self, name: &String) -> Option<&Object> {
+    pub fn get(&self, name: &String) -> Option<&Option<Object>> {
         self.values.iter().rev().find_map(|e| e.get(name))
     }
 
@@ -128,7 +127,7 @@ impl Environment {
         self.values.push(HashMap::new());
     }
 
-    pub fn pop(&mut self) -> Option<HashMap<String, Object>> {
+    pub fn pop(&mut self) -> Option<HashMap<String, Option<Object>>> {
         if self.values.len() > 1 {
             self.values.pop()
         } else {
@@ -178,9 +177,9 @@ impl Interpreter {
         if let TokenType::Identifier(name) = &name.token_type {
             if let Some(expr) = val {
                 let value = self.evaluate(expr)?;
-                self.env.define(name.clone(), value);
+                self.env.define(name.clone(), Some(value));
             } else {
-                self.env.define(name.clone(), Object::Nil);
+                self.env.define(name.clone(), None);
             }
             Ok(None)
         } else {
@@ -254,10 +253,11 @@ impl Interpreter {
     }
 
     fn evaluate_variable(&mut self, name: &Token) -> Result<Object,InterpreterError> {
-        self.env.get(&name.lexeme).map_or(
-            Err(InterpreterError(name.clone(), InterpreterErrorReason::UndefinedVariable)),
-            |v| Ok(v.clone())
-        )
+        match self.env.get(&name.lexeme) {
+            Some(Some(val)) => Ok(val.clone()),
+            Some(None) => Err(InterpreterError(name.clone(), InterpreterErrorReason::UnassignedVariable)),
+            None => Err(InterpreterError(name.clone(), InterpreterErrorReason::UndefinedVariable)),
+        }
     }
 
     fn evaluate_assign(&mut self, name: &Token, expr: &Expr) -> Result<Object,InterpreterError> {
@@ -277,6 +277,7 @@ pub struct InterpreterError(pub Token, pub InterpreterErrorReason);
 pub enum InterpreterErrorReason {
     NotALiteral,
     UndefinedVariable,
+    UnassignedVariable,
     InvalidBinaryOperands(ObjectDiscriminants, OperationType, ObjectDiscriminants),
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),
