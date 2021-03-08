@@ -1,4 +1,5 @@
 use std::fmt;
+use std::rc::Rc;
 use std::collections::HashMap;
 use strum_macros::EnumDiscriminants;
 use crate::lexer::{Token, TokenType, TokenTypeDiscriminants, Keyword};
@@ -19,12 +20,47 @@ pub enum OperationType {
     EqualEqual,
 }
 
-#[derive(Debug, Clone, PartialEq, EnumDiscriminants)]
+pub trait Callable {
+    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Object,InterpreterErrorReason>;
+    fn arity(&self) -> u8;
+}
+
+#[derive(Clone)]
+pub struct CallableObject(Rc<dyn Callable>);
+
+impl CallableObject {
+    pub fn new(arg: Rc<dyn Callable>) -> Self {
+        Self(arg)
+    }
+
+    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Object,InterpreterErrorReason> {
+        self.0.call(interpreter, args)
+    }
+
+    pub fn arity(&self) -> u8 {
+        self.0.arity()
+    }
+}
+
+impl PartialEq for CallableObject {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::as_ptr(&self.0) == Rc::as_ptr(&other.0)
+    }
+}
+
+impl fmt::Debug for CallableObject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CallableObject")
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, EnumDiscriminants)]
 pub enum Object {
     Nil,
     Bool(bool),
     String(String),
     Number(f64),
+    Callable(CallableObject),
 }
 
 macro_rules! number_bin_op {
@@ -46,6 +82,7 @@ impl Object {
             Object::Bool(b) => *b,
             Object::String(_) => true,
             Object::Number(n) => *n != 0.0,
+            Object::Callable(_) => true, //???
         }
     }
 
@@ -84,6 +121,19 @@ impl Object {
         }
     }
 
+    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Self,InterpreterErrorReason> {
+        match self {
+            Object::Callable(f) => {
+                if f.arity() as usize == args.len() {
+                    f.call(interpreter, args)
+                } else {
+                    Err(InterpreterErrorReason::TooManyArguments(f.arity(), args.len()))
+                }
+            }
+            _ => Err(InterpreterErrorReason::NotACallable(ObjectDiscriminants::from(self))),
+        }
+    }
+
     //number_bin_op!(add, +, Number, OperationType::Add);
     number_bin_op!(mul, *, Number, OperationType::Mul);
     number_bin_op!(sub, -, Number, OperationType::Sub);
@@ -101,11 +151,12 @@ impl fmt::Display for Object {
             Object::Bool(val) => write!(f, "{}", val),
             Object::String(val) => write!(f, "{}", val),
             Object::Number(val) => write!(f, "{}", val),
+            Object::Callable(_) => write!(f, "Callable"),
         }
     }
 }
 
-struct Environment {
+pub struct Environment {
     values: Vec<HashMap<String, Object>>,
 }
 
@@ -144,6 +195,10 @@ impl Environment {
             None
         }
     }
+
+    pub fn globals(&mut self) -> &HashMap<String, Object> {
+        self.values.iter().next().unwrap()
+    }
 }
 
 pub struct Interpreter {
@@ -167,6 +222,10 @@ impl Interpreter {
             res = self.execute(&stmt)?;
         }
         Ok(res)
+    }
+
+    pub fn get_env(&mut self) -> &mut Environment {
+        &mut self.env
     }
 
     fn execute(&mut self, stmt: &Stmt) -> Result<Option<Object>,InterpreterError> {
@@ -228,13 +287,14 @@ impl Interpreter {
 
     fn evaluate(&mut self, expr: &Expr) -> Result<Object,InterpreterError> {
         match expr {
-            Expr::Literal(token) => self.get_object(&token),
-            Expr::Grouping(expr) => self.evaluate(&expr),
-            Expr::Unary(token, expr) => self.evaluate_unary(token, expr),
+            Expr::Assign(name, expr) => self.evaluate_assign(name, expr),
             Expr::Logical(left, op, right) => self.evaluate_logical(left, op, right),
             Expr::Binary(left, op, right) => self.evaluate_binary(left, op, right),
-            Expr::Assign(name, expr) => self.evaluate_assign(name, expr),
+            Expr::Call(callee, paren, args) => self.evaluate_call(callee, paren, args),
+            Expr::Unary(token, expr) => self.evaluate_unary(token, expr),
+            Expr::Literal(token) => self.get_object(&token),
             Expr::Variable(name) => self.evaluate_variable(name),
+            Expr::Grouping(expr) => self.evaluate(&expr),
         }
     }
 
@@ -297,6 +357,15 @@ impl Interpreter {
         }
     }
 
+    fn evaluate_call(&mut self, callee: &Expr, paren: &Token, args: &Vec<Expr>) -> Result<Object,InterpreterError> {
+        let callee = self.evaluate(callee)?;
+        let mut eval_args = Vec::new();
+        for arg in args {
+            eval_args.push(self.evaluate(arg)?);
+        }
+        map_int_err!(callee.call(self, &eval_args), paren)
+    }
+
     fn evaluate_variable(&mut self, name: &Token) -> Result<Object,InterpreterError> {
         self.env.get(&name.lexeme).map_or(
             Err(InterpreterError(name.clone(), InterpreterErrorReason::UndefinedVariable)),
@@ -322,6 +391,8 @@ pub enum InterpreterErrorReason {
     NotALiteral,
     UndefinedVariable,
     InvalidBinaryOperands(ObjectDiscriminants, OperationType, ObjectDiscriminants),
+    NotACallable(ObjectDiscriminants),
+    TooManyArguments(u8, usize), //expected, given
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),
     ExpectedToken(TokenTypeDiscriminants),

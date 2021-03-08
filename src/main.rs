@@ -1,5 +1,6 @@
 use std::io::prelude::*;
 use std::io::{stdin, stdout, stderr};
+use std::rc::Rc;
 use std::env;
 use std::fs::File;
 use std::path::Path;
@@ -10,6 +11,7 @@ mod parser;
 use parser::*;
 mod interpreter;
 use interpreter::*;
+mod native;
 
 fn error(line: usize, msg: &str) {
     report(line, "", msg)
@@ -42,8 +44,14 @@ fn run(data: &str, interpreter: &mut Interpreter) {
     }
 }
 
-fn run_file(path: &str) -> Result<(), std::io::Error> {
+fn get_default_interpreter() -> Interpreter {
     let mut interpreter = Interpreter::new();
+    interpreter.get_env().define("clock".to_owned(), interpreter::Object::Callable(interpreter::CallableObject::new(Rc::new(native::Clock{}))));
+    interpreter
+}
+
+fn run_file(path: &str) -> Result<(), std::io::Error> {
+    let mut interpreter = get_default_interpreter();
     let mut file = File::open(Path::new(path))?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
@@ -52,7 +60,7 @@ fn run_file(path: &str) -> Result<(), std::io::Error> {
 }
 
 fn run_prompt() -> Result<(), std::io::Error> {
-    let mut interpreter = Interpreter::new();
+    let mut interpreter = get_default_interpreter();
     loop {
         print!("> ");
         stdout().flush()?;

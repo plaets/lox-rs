@@ -14,17 +14,19 @@ pub enum Stmt {
 
 #[derive(Debug)]
 pub enum Expr {
+    Assign(Box<Token>, Box<Expr>),
+    Logical(Box<Expr>, Box<Keyword>, Box<Expr>),
+    Binary(Box<Expr>, Box<Token>, Box<Expr>),
+    Call(Box<Expr>, Box<Token>, Vec<Expr>),
+    Unary(Box<Token>, Box<Expr>),
     Literal(Box<Token>),
     Variable(Box<Token>),
     Grouping(Box<Expr>),
-    Unary(Box<Token>, Box<Expr>),
-    Logical(Box<Expr>, Box<Keyword>, Box<Expr>),
-    Binary(Box<Expr>, Box<Token>, Box<Expr>),
-    Assign(Box<Token>, Box<Expr>),
 }
 
 pub struct Parser {
     tokens: Vec<Token>,
+    non_critical_erros: Vec<ParseError>,
     pos: usize,
 }
 
@@ -57,6 +59,7 @@ impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         Self {
             tokens,
+            non_critical_erros: Vec::new(),
             pos: 0
         }
     }
@@ -130,7 +133,7 @@ impl Parser {
     fn for_statement(&mut self) -> Result<Stmt,ParseError> {
         self.consume(TokenTypeDiscriminants::LeftParen, None)?;
 
-        let mut init: Option<Stmt> = None;
+        let init: Option<Stmt>;
         if self.match_tokens(vec![TokenTypeDiscriminants::Semicolon]) {
             init = None;
         } else if self.match_keyword(Keyword::Var) {
@@ -221,7 +224,7 @@ impl Parser {
     fn or(&mut self) -> Result<Expr,ParseError> {
         let expr = self.and()?;
         if self.match_keyword(Keyword::Or) {
-            let op = self.previous();
+            let _op = self.previous(); //should always be or
             let right = self.and()?;
             Ok(Expr::Logical(Box::new(expr), Box::new(Keyword::Or), Box::new(right)))
         } else {
@@ -232,7 +235,7 @@ impl Parser {
     fn and(&mut self) -> Result<Expr,ParseError> {
         let expr = self.equality()?;
         if self.match_keyword(Keyword::And) {
-            let op = self.previous();
+            let _op = self.previous(); //should always be and
             let right = self.equality()?;
             Ok(Expr::Logical(Box::new(expr), Box::new(Keyword::And), Box::new(right)))
         } else {
@@ -252,7 +255,34 @@ impl Parser {
             return Ok(Expr::Unary(Box::new(op), Box::new(right)));
         }
 
-        self.primary()
+        self.call()
+    }
+
+    fn call(&mut self) -> Result<Expr,ParseError> {
+        let mut expr = self.primary()?;
+        loop {
+            if self.match_tokens(vec![TokenTypeDiscriminants::LeftParen]) {
+                expr = self.finish_call(expr)?;
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> Result<Expr,ParseError> {
+        let mut args: Vec<Expr> = Vec::new();
+        if !self.check(TokenTypeDiscriminants::RightParen) {
+            while self.match_tokens(vec![TokenTypeDiscriminants::Comma]) {
+                if args.len() == 255 {
+                    self.non_critical_erros.push(ParseError(self.peek().clone(), ParseErrorReason::TooManyArguments))
+                }
+                args.push(self.expression()?);
+            }
+            args.push(self.expression()?);
+        }
+        let paren = self.consume(TokenTypeDiscriminants::RightParen, None)?;
+        Ok(Expr::Call(Box::new(callee), Box::new(paren), args))
     }
 
     fn primary(&mut self) -> Result<Expr,ParseError> {
@@ -386,6 +416,7 @@ pub enum ParseErrorReason {
     ExpectedExpr,
     ExpectedVariableName,
     InvalidAssignmentTarget,
+    TooManyArguments,
     NotImplemented,
     Other(String),
 }
