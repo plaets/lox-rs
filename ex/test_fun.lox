@@ -1,0 +1,17 @@
+fun asd() {
+    print "asd";
+}
+
+asd();
+
+fun zxc(a) {
+    print a;
+}
+
+zxc("asd");
+
+fun cvb(a,b,c) {
+    print a + b + c;
+}
+
+cvb(1,2,3);

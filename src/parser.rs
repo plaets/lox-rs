@@ -1,26 +1,33 @@
 use std::fmt;
+use std::rc::Rc;
 use crate::lexer::*;
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
+pub struct FunctionStmt(pub Box<Token>, pub Vec<Token>, pub Vec<Stmt>);     //name, args, body
+
+#[derive(Debug,Clone)]
 pub enum Stmt {
     Expr(Expr),
-    If(Box<Expr>, Box<Stmt>, Option<Box<Stmt>>),
+    If(Expr, Box<Stmt>, Option<Box<Stmt>>),    //cond, then, else
     Print(Expr),
-    While(Box<Expr>, Box<Stmt>),
-    Var(Box<Token>, Option<Expr>), //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
+    Return(Option<Expr>), 
+    While(Expr, Box<Stmt>),                    //cond, body
+    Var(Box<Token>, Option<Expr>),                  //name, init
+    //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
+    Fun(Rc<FunctionStmt>),
     //having tokens here is pretty cool as it allows better error handling 
     Block(Vec<Stmt>),
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum Expr {
-    Assign(Box<Token>, Box<Expr>),
-    Logical(Box<Expr>, Box<Keyword>, Box<Expr>),
-    Binary(Box<Expr>, Box<Token>, Box<Expr>),
-    Call(Box<Expr>, Box<Token>, Vec<Expr>),
-    Unary(Box<Token>, Box<Expr>),
+    Assign(Box<Token>, Box<Expr>),                  //name, value
+    Logical(Box<Expr>, Box<Keyword>, Box<Expr>),    //left, op (or/and), right
+    Binary(Box<Expr>, Box<Token>, Box<Expr>),       //left, op, right
+    Call(Box<Expr>, Box<Token>, Vec<Expr>),         //callable, left paren, args
+    Unary(Box<Token>, Box<Expr>),                   //op, right
     Literal(Box<Token>),
-    Variable(Box<Token>),
+    Variable(Box<Token>),                           //name
     Grouping(Box<Expr>),
 }
 
@@ -75,6 +82,8 @@ impl Parser {
     fn declaration(&mut self) -> Result<Stmt,ParseError> {
         if self.match_keyword(Keyword::Var) {
             sync_on_err!(self, self.var_declaration())
+        } else if self.match_keyword(Keyword::Fun) {
+            sync_on_err!(self, self.fun_declaration())
         } else {
             sync_on_err!(self, self.statement())
         }
@@ -90,6 +99,34 @@ impl Parser {
         Ok(Stmt::Var(Box::new(name), init))
     }
 
+    //this could return FunctionStmt i guess... sorta inconsistent
+    fn fun_declaration(&mut self) -> Result<Stmt,ParseError> {
+        let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedFunctionName))?;
+        self.consume(TokenTypeDiscriminants::LeftParen, None)?;
+
+        let mut parameters: Vec<Token> = Vec::new();
+        while let TokenType::Identifier(_) = self.peek().token_type {
+            parameters.push(self.peek().clone());
+            if parameters.len() == 255 {
+                self.non_critical_erros.push(ParseError(self.peek().clone(), ParseErrorReason::TooManyArguments))
+            }
+            self.advance();
+            if self.peek().token_type != TokenType::Comma {
+                break;
+            } else {
+                self.advance();
+            }
+        }
+
+        self.consume(TokenTypeDiscriminants::RightParen, Some(ParseErrorReason::ExpectedFunctionParameterOrRightParen))?;
+        self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
+        if let Stmt::Block(block) = self.block()? {
+            Ok(Stmt::Fun(Rc::new(FunctionStmt(Box::new(name), parameters, block))))
+        } else {
+            Err(ParseError(self.peek(), ParseErrorReason::Other("internal error: expected a block".to_owned())))
+        }
+    }
+
     fn statement(&mut self) -> Result<Stmt,ParseError> {
         if self.match_keyword(Keyword::If) {
             self.if_statement()
@@ -97,6 +134,8 @@ impl Parser {
             self.for_statement()
         } else if self.match_keyword(Keyword::Print) {
             self.print_statement()
+        } else if self.match_keyword(Keyword::Return) {
+            self.return_statement()
         } else if self.match_keyword(Keyword::While) {
             self.while_statement()
         } else if self.match_tokens(vec![TokenTypeDiscriminants::LeftBrace]) {
@@ -127,7 +166,7 @@ impl Parser {
             else_branch = Some(self.statement()?);
         }
 
-        Ok(Stmt::If(Box::new(condition), Box::new(then_branch), else_branch.map(|v| Box::new(v))))
+        Ok(Stmt::If(condition, Box::new(then_branch), else_branch.map(|v| Box::new(v))))
     }
 
     fn for_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -165,11 +204,11 @@ impl Parser {
         }
 
         if let Some(cond) = cond {
-            body = Stmt::While(Box::new(cond), Box::new(body));
+            body = Stmt::While(cond, Box::new(body));
         } else {
-            body = Stmt::While(Box::new(Expr::Literal(
+            body = Stmt::While(Expr::Literal(
                         Box::new(Token::new(TokenType::Keyword(Keyword::True), "true".to_string(), 0))
-                    )), Box::new(body));
+                    ), Box::new(body));
         }
 
         if let Some(init) = init {
@@ -188,12 +227,23 @@ impl Parser {
         Ok(Stmt::Print(expr))
     }
 
+    fn return_statement(&mut self) -> Result<Stmt,ParseError> {
+        let keyword = self.previous();
+        let mut value: Option<Expr> = None;
+        //TODO: implement check as a macro so that discriminants are unecessary
+        if !self.check(TokenTypeDiscriminants::Semicolon) {
+            value = Some(self.expression()?);
+        }
+        self.consume(TokenTypeDiscriminants::Semicolon, None)?;
+        Ok(Stmt::Return(value))
+    }
+
     fn while_statement(&mut self) -> Result<Stmt,ParseError> {
         self.consume(TokenTypeDiscriminants::LeftParen, None)?;
         let cond = self.expression()?;
         self.consume(TokenTypeDiscriminants::RightParen, None)?;
         let body = self.statement()?;
-        Ok(Stmt::While(Box::new(cond), Box::new(body)))
+        Ok(Stmt::While(cond, Box::new(body)))
     }
 
     fn expr_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -273,13 +323,13 @@ impl Parser {
     fn finish_call(&mut self, callee: Expr) -> Result<Expr,ParseError> {
         let mut args: Vec<Expr> = Vec::new();
         if !self.check(TokenTypeDiscriminants::RightParen) {
+            args.push(self.expression()?);
             while self.match_tokens(vec![TokenTypeDiscriminants::Comma]) {
                 if args.len() == 255 {
                     self.non_critical_erros.push(ParseError(self.peek().clone(), ParseErrorReason::TooManyArguments))
                 }
                 args.push(self.expression()?);
             }
-            args.push(self.expression()?);
         }
         let paren = self.consume(TokenTypeDiscriminants::RightParen, None)?;
         Ok(Expr::Call(Box::new(callee), Box::new(paren), args))
@@ -415,6 +465,8 @@ pub enum ParseErrorReason {
     ExpectedToken(TokenTypeDiscriminants),
     ExpectedExpr,
     ExpectedVariableName,
+    ExpectedFunctionName,
+    ExpectedFunctionParameterOrRightParen,
     InvalidAssignmentTarget,
     TooManyArguments,
     NotImplemented,

@@ -1,9 +1,12 @@
 use std::fmt;
 use std::rc::Rc;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::mem::swap;
 use strum_macros::EnumDiscriminants;
 use crate::lexer::{Token, TokenType, TokenTypeDiscriminants, Keyword};
-use crate::parser::{Expr,Stmt};
+use crate::parser::{Expr,Stmt,FunctionStmt};
+use crate::function::Function;
 
 #[derive(Debug, Clone, Copy)]
 pub enum OperationType {
@@ -21,7 +24,7 @@ pub enum OperationType {
 }
 
 pub trait Callable {
-    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Object,InterpreterErrorReason>;
+    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,InterpreterErrorReason>;
     fn arity(&self) -> u8;
 }
 
@@ -33,7 +36,7 @@ impl CallableObject {
         Self(arg)
     }
 
-    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Object,InterpreterErrorReason> {
+    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,InterpreterErrorReason> {
         self.0.call(interpreter, args)
     }
 
@@ -121,7 +124,7 @@ impl Object {
         }
     }
 
-    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Self,InterpreterErrorReason> {
+    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Self>,InterpreterErrorReason> {
         match self {
             Object::Callable(f) => {
                 if f.arity() as usize == args.len() {
@@ -156,39 +159,47 @@ impl fmt::Display for Object {
     }
 }
 
+
+type EnvironmentScope = Rc<RefCell<HashMap<String, Object>>>;
+
+#[derive(Debug)]
 pub struct Environment {
-    values: Vec<HashMap<String, Object>>,
+    values: Vec<EnvironmentScope>,
 }
 
 impl Environment {
     pub fn new() -> Self {
         Self {
-            values: vec![HashMap::new()]
+            values: vec![Rc::new(RefCell::new(HashMap::new()))]
         }
     }
 
     pub fn define(&mut self, name: String, val: Object) {
-        self.values.last_mut().unwrap().insert(name, val);
+        self.values.last_mut().unwrap().borrow_mut().insert(name, val);
     }
 
     pub fn assign(&mut self, name: String, val: Object) -> Option<Object> {
-        let found = self.values.iter_mut().find(|e| e.contains_key(&name));
+        let found = self.values.iter_mut().find(|e| e.borrow().contains_key(&name));
         if let Some(env) = found {
-            Some(env.insert(name, val).unwrap()) //dumb
+            Some(env.borrow_mut().insert(name, val).unwrap()) //dumb
         } else {
             None
         }
     }
 
-    pub fn get(&self, name: &String) -> Option<&Object> {
-        self.values.iter().rev().find_map(|e| e.get(name))
+    pub fn get(&self, name: &String) -> Option<Object> {
+        self.values.iter().rev().find_map(|e| e.borrow().get(name).map(|v| v.clone()))
     }
 
     pub fn push(&mut self) {
-        self.values.push(HashMap::new());
+        self.values.push(Rc::new(RefCell::new(HashMap::new())));
+    }
+    
+    pub fn push_foreign(&mut self, scope: EnvironmentScope) {
+        self.values.push(scope)
     }
 
-    pub fn pop(&mut self) -> Option<HashMap<String, Object>> {
+    pub fn pop(&mut self) -> Option<Rc<RefCell<HashMap<String, Object>>>> {
         if self.values.len() > 1 {
             self.values.pop()
         } else {
@@ -196,8 +207,8 @@ impl Environment {
         }
     }
 
-    pub fn globals(&mut self) -> &HashMap<String, Object> {
-        self.values.iter().next().unwrap()
+    pub fn globals(&mut self) -> Rc<RefCell<HashMap<String, Object>>> {
+        self.values.iter().next().unwrap().clone()
     }
 }
 
@@ -233,7 +244,9 @@ impl Interpreter {
             Stmt::Expr(expr) => Ok(Some(self.evaluate(expr)?)),
             Stmt::If(cond, thenb, elseb) => Ok(self.exec_if(cond, thenb, elseb.as_ref().map(|v| v.as_ref()))?),
             Stmt::Print(expr) => Ok(self.exec_print(expr)?),
+            Stmt::Return(expr) => Ok(self.exec_return(expr)?),
             Stmt::While(cond, body) => Ok(self.exec_while(cond, body)?),
+            Stmt::Fun(fun) => Ok(self.exec_fun(fun.clone())?),
             Stmt::Var(name, expr) => Ok(self.exec_var(name, expr)?),
             Stmt::Block(stmts) => Ok(self.exec_block(stmts)?),
         }
@@ -254,10 +267,20 @@ impl Interpreter {
         Ok(None)
     }
 
+    fn exec_return(&mut self, expr: &Expr) -> Result<Option<Object>,InterpreterError> {
+        Err(InterpreterError::Return(self.evaluate(expr)?))
+    }
+
     fn exec_while(&mut self, cond: &Expr, body: &Stmt) -> Result<Option<Object>,InterpreterError> {
         while self.evaluate(cond)?.is_truthy() {
             self.execute(body)?;
         }
+        Ok(None)
+    }
+
+    fn exec_fun(&mut self, fun: Rc<FunctionStmt>) -> Result<Option<Object>,InterpreterError> {
+        let function = Function::new(fun.clone());
+        self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Rc::new(function))));
         Ok(None)
     }
 
@@ -283,6 +306,18 @@ impl Interpreter {
         }
         self.env.pop().unwrap();
         Ok(last_val)
+    }
+
+    pub fn exec_block_in_env(&mut self, stmts: &Vec<Stmt>, env: &mut Environment) -> Result<Option<Object>,InterpreterError> {
+        //this fucking sucks there is no way this works
+        //function calling needs to be implemented differently
+        //maybe it was a good idea to use linked lists after all
+        swap(&mut self.env, env); 
+        for stmt in stmts {
+            self.execute(stmt)?;
+        }
+        swap(&mut self.env, env);
+        Ok(Some(Object::Nil))
     }
 
     fn evaluate(&mut self, expr: &Expr) -> Result<Object,InterpreterError> {
@@ -363,7 +398,7 @@ impl Interpreter {
         for arg in args {
             eval_args.push(self.evaluate(arg)?);
         }
-        map_int_err!(callee.call(self, &eval_args), paren)
+        map_int_err!(callee.call(self, &eval_args).map(|v| v.or(Some(Object::Nil)).unwrap()), paren)
     }
 
     fn evaluate_variable(&mut self, name: &Token) -> Result<Object,InterpreterError> {
@@ -384,6 +419,7 @@ impl Interpreter {
 }
 
 #[derive(Debug, Clone)]
+//TODO: change to just error
 pub struct InterpreterError(pub Token, pub InterpreterErrorReason);
 
 #[derive(Debug, Clone)]
@@ -396,4 +432,6 @@ pub enum InterpreterErrorReason {
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),
     ExpectedToken(TokenTypeDiscriminants),
+    UserCallError(Box<InterpreterError>),
+    Return(Object), //TODO: this sucks
 }

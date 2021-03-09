@@ -12,6 +12,7 @@ use parser::*;
 mod interpreter;
 use interpreter::*;
 mod native;
+mod function;
 
 fn error(line: usize, msg: &str) {
     report(line, "", msg)

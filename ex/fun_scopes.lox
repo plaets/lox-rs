@@ -1,0 +1,19 @@
+fun a(b) {
+    print b;
+}
+
+fun b() {
+    var c = 1;
+}
+
+{
+    var d = 1;    
+    b();
+    {  
+        var c = 2;
+        a(2);
+        print d;
+        print c;
+    }
+    print d;
+}
