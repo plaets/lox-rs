@@ -24,7 +24,7 @@ pub enum OperationType {
 }
 
 pub trait Callable {
-    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,InterpreterErrorReason>;
+    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange>;
     fn arity(&self) -> u8;
 }
 
@@ -36,7 +36,7 @@ impl CallableObject {
         Self(arg)
     }
 
-    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,InterpreterErrorReason> {
+    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange> {
         self.0.call(interpreter, args)
     }
 
@@ -124,16 +124,16 @@ impl Object {
         }
     }
 
-    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Self>,InterpreterErrorReason> {
+    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Self>,StateChange> {
         match self {
             Object::Callable(f) => {
                 if f.arity() as usize == args.len() {
                     f.call(interpreter, args)
                 } else {
-                    Err(InterpreterErrorReason::TooManyArguments(f.arity(), args.len()))
+                    Err(StateChange::ErrorReason(InterpreterErrorReason::WrongNumberOfArgs(f.arity(), args.len())))
                 }
             }
-            _ => Err(InterpreterErrorReason::NotACallable(ObjectDiscriminants::from(self))),
+            _ => Err(StateChange::ErrorReason(InterpreterErrorReason::NotACallable(ObjectDiscriminants::from(self)))),
         }
     }
 
@@ -171,6 +171,12 @@ impl Environment {
     pub fn new() -> Self {
         Self {
             values: vec![Rc::new(RefCell::new(HashMap::new()))]
+        }
+    }
+
+    pub fn new_with(env: EnvironmentScope) -> Self {
+        Self {
+            values: vec![env],
         }
     }
 
@@ -217,7 +223,11 @@ pub struct Interpreter {
 }
 
 macro_rules! map_int_err {
-    ($e:expr,$token:ident) => { ($e).map_err(|e| InterpreterError($token.clone(), e)) }
+    ($e:expr,$token:ident) => { ($e).map_err(|e| int_err!($token.clone(), e)) }
+}
+
+macro_rules! int_err {
+    ($t:expr,$e:expr) => { StateChange::Error(InterpreterError($t,$e)) }
 }
 
 impl Interpreter {
@@ -227,7 +237,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<Option<Object>,InterpreterError> {
+    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<Option<Object>,StateChange> {
         let mut res: Option<Object> = None;
         for stmt in statements {
             res = self.execute(&stmt)?;
@@ -239,7 +249,7 @@ impl Interpreter {
         &mut self.env
     }
 
-    fn execute(&mut self, stmt: &Stmt) -> Result<Option<Object>,InterpreterError> {
+    fn execute(&mut self, stmt: &Stmt) -> Result<Option<Object>,StateChange> {
         match stmt {
             Stmt::Expr(expr) => Ok(Some(self.evaluate(expr)?)),
             Stmt::If(cond, thenb, elseb) => Ok(self.exec_if(cond, thenb, elseb.as_ref().map(|v| v.as_ref()))?),
@@ -252,7 +262,7 @@ impl Interpreter {
         }
     }
 
-    fn exec_if(&mut self, cond: &Expr, thenb: &Stmt, elseb: Option<&Stmt>) -> Result<Option<Object>,InterpreterError> {
+    fn exec_if(&mut self, cond: &Expr, thenb: &Stmt, elseb: Option<&Stmt>) -> Result<Option<Object>,StateChange> {
         if self.evaluate(cond)?.is_truthy() {
             self.execute(thenb)
         } else if let Some(elseb) = elseb {
@@ -262,29 +272,32 @@ impl Interpreter {
         }
     }
 
-    fn exec_print(&mut self, expr: &Expr) -> Result<Option<Object>,InterpreterError> {
+    fn exec_print(&mut self, expr: &Expr) -> Result<Option<Object>,StateChange> {
         println!("{}", self.evaluate(expr)?);
         Ok(None)
     }
 
-    fn exec_return(&mut self, expr: &Expr) -> Result<Option<Object>,InterpreterError> {
-        Err(InterpreterError::Return(self.evaluate(expr)?))
+    fn exec_return(&mut self, expr: &Option<Expr>) -> Result<Option<Object>,StateChange> {
+        match expr {
+            Some(expr) => Err(StateChange::Return(self.evaluate(expr)?)),
+            None => Err(StateChange::Return(Object::Nil))
+        }
     }
 
-    fn exec_while(&mut self, cond: &Expr, body: &Stmt) -> Result<Option<Object>,InterpreterError> {
+    fn exec_while(&mut self, cond: &Expr, body: &Stmt) -> Result<Option<Object>,StateChange> {
         while self.evaluate(cond)?.is_truthy() {
             self.execute(body)?;
         }
         Ok(None)
     }
 
-    fn exec_fun(&mut self, fun: Rc<FunctionStmt>) -> Result<Option<Object>,InterpreterError> {
+    fn exec_fun(&mut self, fun: Rc<FunctionStmt>) -> Result<Option<Object>,StateChange> {
         let function = Function::new(fun.clone());
         self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Rc::new(function))));
         Ok(None)
     }
 
-    fn exec_var(&mut self, name: &Token, val: &Option<Expr>) -> Result<Option<Object>,InterpreterError> {
+    fn exec_var(&mut self, name: &Token, val: &Option<Expr>) -> Result<Option<Object>,StateChange> {
         if let TokenType::Identifier(name) = &name.token_type {
             if let Some(expr) = val {
                 let value = self.evaluate(expr)?;
@@ -294,11 +307,11 @@ impl Interpreter {
             }
             Ok(None)
         } else {
-            Err(InterpreterError(name.clone(), InterpreterErrorReason::ExpectedToken(TokenTypeDiscriminants::Identifier)))
+            Err(int_err!(name.clone(), InterpreterErrorReason::ExpectedToken(TokenTypeDiscriminants::Identifier)))
         }
     }
 
-    fn exec_block(&mut self, stmts: &Vec<Stmt>) -> Result<Option<Object>,InterpreterError> {
+    fn exec_block(&mut self, stmts: &Vec<Stmt>) -> Result<Option<Object>,StateChange> {
         self.env.push();
         let mut last_val: Option<Object> = None;
         for stmt in stmts {
@@ -308,19 +321,27 @@ impl Interpreter {
         Ok(last_val)
     }
 
-    pub fn exec_block_in_env(&mut self, stmts: &Vec<Stmt>, env: &mut Environment) -> Result<Option<Object>,InterpreterError> {
+    pub fn exec_block_in_env(&mut self, stmts: &Vec<Stmt>, env: &mut Environment) -> Result<Option<Object>,StateChange> {
         //this fucking sucks there is no way this works
         //function calling needs to be implemented differently
         //maybe it was a good idea to use linked lists after all
-        swap(&mut self.env, env); 
+        swap(&mut self.env, env);
+        let mut return_val: Option<Object> = None;
         for stmt in stmts {
-            self.execute(stmt)?;
+            let res = self.execute(stmt);
+            match res {
+                Err(StateChange::Return(val)) => {
+                    return_val = Some(val);
+                    break;
+                }
+                _ => { res?; },
+            }
         }
         swap(&mut self.env, env);
-        Ok(Some(Object::Nil))
+        Ok(return_val)
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> Result<Object,InterpreterError> {
+    fn evaluate(&mut self, expr: &Expr) -> Result<Object,StateChange> {
         match expr {
             Expr::Assign(name, expr) => self.evaluate_assign(name, expr),
             Expr::Logical(left, op, right) => self.evaluate_logical(left, op, right),
@@ -333,31 +354,31 @@ impl Interpreter {
         }
     }
 
-    fn get_object(&mut self, token: &Token) -> Result<Object,InterpreterError> {
+    fn get_object(&mut self, token: &Token) -> Result<Object,StateChange> {
         match &token.token_type {
             TokenType::Keyword(k) => match k {
                 Keyword::True => Ok(Object::Bool(true)),
                 Keyword::False => Ok(Object::Bool(false)),
                 Keyword::Nil => Ok(Object::Nil),
-                _ => Err(InterpreterError(token.clone(), InterpreterErrorReason::NotALiteral)),
+                _ => Err(int_err!(token.clone(), InterpreterErrorReason::NotALiteral)),
             },
             TokenType::String(obj) => Ok(obj.clone()),
             TokenType::Number(obj) => Ok(obj.clone()),
-            _ => Err(InterpreterError(token.clone(), InterpreterErrorReason::NotALiteral)),
+            _ => Err(int_err!(token.clone(), InterpreterErrorReason::NotALiteral)),
         }
     }
 
-    fn evaluate_unary(&mut self, token: &Token, expr: &Expr) -> Result<Object,InterpreterError> {
+    fn evaluate_unary(&mut self, token: &Token, expr: &Expr) -> Result<Object,StateChange> {
         let right = self.evaluate(expr)?;
 
         match &token.token_type {
             TokenType::Minus => map_int_err!(right.neg(), token),
             TokenType::Bang => Ok(Object::Bool(!right.is_truthy())),
-            _ => Err(InterpreterError(token.clone(), InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&token.token_type)))),
+            _ => Err(int_err!(token.clone(), InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&token.token_type)))),
         }
     }
 
-    fn evaluate_logical(&mut self, left: &Expr, op: &Keyword, right: &Expr) -> Result<Object,InterpreterError> {
+    fn evaluate_logical(&mut self, left: &Expr, op: &Keyword, right: &Expr) -> Result<Object,StateChange> {
         let left = self.evaluate(left)?;
         if *op == Keyword::Or {
             if left.is_truthy() {
@@ -372,7 +393,7 @@ impl Interpreter {
         self.evaluate(right)
     }
 
-    fn evaluate_binary(&mut self, left: &Expr, op: &Token, right: &Expr) -> Result<Object,InterpreterError> {
+    fn evaluate_binary(&mut self, left: &Expr, op: &Token, right: &Expr) -> Result<Object,StateChange> {
         let left = self.evaluate(left)?;
         let right = self.evaluate(right)?;
 
@@ -387,35 +408,52 @@ impl Interpreter {
             TokenType::Greater => map_int_err!(left.greater(&right), op),
             TokenType::EqualEqual => map_int_err!(left.equal(&right), op),
             TokenType::BangEqual => map_int_err!(left.equal(&right), op).and_then(|v| map_int_err!(v.not(), op)),
-            _ => Err(InterpreterError(op.clone(), 
+            _ => Err(int_err!(op.clone(), 
                   InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&op.token_type)))),
         }
     }
 
-    fn evaluate_call(&mut self, callee: &Expr, paren: &Token, args: &Vec<Expr>) -> Result<Object,InterpreterError> {
+    fn evaluate_call(&mut self, callee: &Expr, paren: &Token, args: &Vec<Expr>) -> Result<Object,StateChange> {
         let callee = self.evaluate(callee)?;
         let mut eval_args = Vec::new();
         for arg in args {
             eval_args.push(self.evaluate(arg)?);
         }
-        map_int_err!(callee.call(self, &eval_args).map(|v| v.or(Some(Object::Nil)).unwrap()), paren)
+        match callee.call(self, &eval_args) {
+            Ok(Some(val)) => Ok(val),
+            Ok(None) => Ok(Object::Nil),
+            Err(StateChange::Return(value)) => Ok(value),
+            Err(StateChange::ErrorReason(reason)) => Err(StateChange::Error(InterpreterError(paren.clone(), reason))),
+            Err(StateChange::Error(err)) => Err(StateChange::Error(err)),
+        }
     }
 
-    fn evaluate_variable(&mut self, name: &Token) -> Result<Object,InterpreterError> {
+    fn evaluate_variable(&mut self, name: &Token) -> Result<Object,StateChange> {
         self.env.get(&name.lexeme).map_or(
-            Err(InterpreterError(name.clone(), InterpreterErrorReason::UndefinedVariable)),
+            Err(int_err!(name.clone(), InterpreterErrorReason::UndefinedVariable)),
             |v| Ok(v.clone())
         )
     }
 
-    fn evaluate_assign(&mut self, name: &Token, expr: &Expr) -> Result<Object,InterpreterError> {
+    fn evaluate_assign(&mut self, name: &Token, expr: &Expr) -> Result<Object,StateChange> {
         let value = self.evaluate(expr)?;
         if let Some(_) = self.env.assign(name.lexeme.clone(), value.clone()) {
             Ok(value)
         } else {
-            Err(InterpreterError(name.clone(), InterpreterErrorReason::UndefinedVariable))
+            Err(int_err!(name.clone(), InterpreterErrorReason::UndefinedVariable))
         }
     }
+}
+
+//todo (not anymore): result should not be used anymore i think, we need a new enum - haha actually
+//you cant propagate errors from other enums (yet? i think? without nightly at least)
+//i guess i will have to stay with this ugly ass return-in-error
+#[derive(Debug, Clone)]
+pub enum StateChange {
+    Return(Object),
+    Error(InterpreterError),
+    ErrorReason(InterpreterErrorReason),
+    //just for error reason so that call in object works?
 }
 
 #[derive(Debug, Clone)]
@@ -428,10 +466,9 @@ pub enum InterpreterErrorReason {
     UndefinedVariable,
     InvalidBinaryOperands(ObjectDiscriminants, OperationType, ObjectDiscriminants),
     NotACallable(ObjectDiscriminants),
-    TooManyArguments(u8, usize), //expected, given
+    WrongNumberOfArgs(u8, usize), //expected, given
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),
     ExpectedToken(TokenTypeDiscriminants),
     UserCallError(Box<InterpreterError>),
-    Return(Object), //TODO: this sucks
 }

@@ -1,6 +1,7 @@
-fun a(b) {
-    a(b+1);
+fun a(b, c) {
+    if(b == c) return;
+    a(b+1, c);
     print b;
 }
 
-a(1);
+a(1, 20);

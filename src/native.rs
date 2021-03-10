@@ -1,9 +1,9 @@
 use std::time;
-use crate::interpreter::{Callable,Interpreter,InterpreterErrorReason,Object};
+use crate::interpreter::{Callable,Interpreter,Object,StateChange};
 
 pub struct Clock { }
 impl Callable for Clock {
-    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,InterpreterErrorReason> {
+    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange> {
         Ok(Some(Object::Number(time::SystemTime::now().duration_since(time::SystemTime::UNIX_EPOCH).unwrap().as_secs() as f64)))
     }
 

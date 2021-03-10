@@ -23,7 +23,7 @@ fn report(line: usize, err_where: &str, msg: &str) {
     stderr().write_all(s.as_bytes()).unwrap();
 }
 
-fn run(data: &str, interpreter: &mut Interpreter) {
+fn run(data: &str, interpreter: &mut Interpreter) -> Result<Option<Object>,StateChange> {
     let mut scanner = Scanner::new(data.to_string());
     let tokens = scanner.scan_tokens();
     if let Ok(_tokens) = tokens {
@@ -31,17 +31,14 @@ fn run(data: &str, interpreter: &mut Interpreter) {
         let tree = parser.parse();
         match tree {
             Ok(t) => {
-                let res = interpreter.interpret(&t);
-                if let Err(r) = res {
-                    println!("{:?}", r);
-                } else if let Ok(Some(r)) = res {
-                    println!("{}", r);
-                }
+                return interpreter.interpret(&t);
             },
             Err(e) => println!("parse error: {:#?}", e),
         }
+        Ok(None)
     } else {
         println!("scanner error: {:#?}", tokens);
+        Ok(None)
     }
 }
 
@@ -56,7 +53,10 @@ fn run_file(path: &str) -> Result<(), std::io::Error> {
     let mut file = File::open(Path::new(path))?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
-    run(&contents, &mut interpreter);
+    let res = run(&contents, &mut interpreter);
+    if let Err(r) = res {
+        println!("{:?}", r);
+    } 
     Ok(())
 }
 
@@ -67,7 +67,12 @@ fn run_prompt() -> Result<(), std::io::Error> {
         stdout().flush()?;
         let mut line = String::new();
         stdin().read_line(&mut line)?;
-        run(&line, &mut interpreter);
+        let res = run(&line, &mut interpreter);
+        if let Err(r) = res {
+            println!("{:?}", r);
+        } else if let Ok(Some(r)) = res {
+            println!("{}", r);
+        }
     }
 }
 
