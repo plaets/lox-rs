@@ -8,6 +8,9 @@ use crate::lexer::{Token, TokenType, TokenTypeDiscriminants, Keyword};
 use crate::parser::{Expr,Stmt,FunctionStmt};
 use crate::function::Function;
 
+//so i been thinking... do i need garbage collection or does rc handle all i need to do
+//update: check the examples for an answer
+
 #[derive(Debug, Clone, Copy)]
 pub enum OperationType {
     Neg,
@@ -68,10 +71,10 @@ pub enum Object {
 
 macro_rules! number_bin_op {
     ($fn:ident,$op:tt,$obj:ident,$op_type:path) => {
-        pub fn $fn(&self, other: &Self) -> Result<Self,InterpreterErrorReason> {
+        pub fn $fn(&self, other: &Self) -> Result<Self,ErrReason> {
             match (self, other) {
                 (Object::Number(a), Object::Number(b)) => Ok(Object::$obj(a $op b)),
-                _ => Err(InterpreterErrorReason::InvalidBinaryOperands(ObjectDiscriminants::from(self), 
+                _ => Err(ErrReason::InvalidBinaryOperands(ObjectDiscriminants::from(self), 
                        $op_type, ObjectDiscriminants::from(self))),
             }
         }
@@ -89,23 +92,23 @@ impl Object {
         }
     }
 
-    pub fn neg(&self) -> Result<Self,InterpreterErrorReason> {
+    pub fn neg(&self) -> Result<Self,ErrReason> {
         match self {
             Object::Number(num) => Ok(Object::Number(-num)),
-            _ => Err(InterpreterErrorReason::InvalidUnaryOperand(OperationType::Neg, 
+            _ => Err(ErrReason::InvalidUnaryOperand(OperationType::Neg, 
                      ObjectDiscriminants::from(self))),
         }
     }
 
-    pub fn not(&self) -> Result<Self,InterpreterErrorReason> {
+    pub fn not(&self) -> Result<Self,ErrReason> {
         match self {
             Object::Bool(val) => Ok(Object::Bool(!val)),
-            _ => Err(InterpreterErrorReason::InvalidUnaryOperand(OperationType::Not, 
+            _ => Err(ErrReason::InvalidUnaryOperand(OperationType::Not, 
                      ObjectDiscriminants::from(self))),
         }
     }
 
-    pub fn equal(&self, other: &Self) -> Result<Self,InterpreterErrorReason> {
+    pub fn equal(&self, other: &Self) -> Result<Self,ErrReason> {
         match (self, other) {
             (Object::Number(a), Object::Number(b)) => Ok(Object::Bool(a == b)),
             (Object::String(a), Object::String(b)) => Ok(Object::Bool(a == b)),
@@ -115,11 +118,11 @@ impl Object {
         }
     }
 
-    pub fn add(&self, other: &Self) -> Result<Self,InterpreterErrorReason> {
+    pub fn add(&self, other: &Self) -> Result<Self,ErrReason> {
         match (self, other) {
             (Object::Number(a), Object::Number(b)) => Ok(Object::Number(a + b)),
             (Object::String(a), Object::String(b)) => Ok(Object::String(a.to_owned() + b)),
-            _ => Err(InterpreterErrorReason::InvalidBinaryOperands(ObjectDiscriminants::from(self), 
+            _ => Err(ErrReason::InvalidBinaryOperands(ObjectDiscriminants::from(self), 
                                                    OperationType::Add, ObjectDiscriminants::from(self))),
         }
     }
@@ -130,10 +133,10 @@ impl Object {
                 if f.arity() as usize == args.len() {
                     f.call(interpreter, args)
                 } else {
-                    Err(StateChange::ErrorReason(InterpreterErrorReason::WrongNumberOfArgs(f.arity(), args.len())))
+                    Err(StateChange::ErrReason(ErrReason::WrongNumberOfArgs(f.arity(), args.len())))
                 }
             }
-            _ => Err(StateChange::ErrorReason(InterpreterErrorReason::NotACallable(ObjectDiscriminants::from(self)))),
+            _ => Err(StateChange::ErrReason(ErrReason::NotACallable(ObjectDiscriminants::from(self)))),
         }
     }
 
@@ -160,7 +163,7 @@ impl fmt::Display for Object {
 }
 
 
-type EnvironmentScope = Rc<RefCell<HashMap<String, Object>>>;
+pub type EnvironmentScope = Rc<RefCell<HashMap<String, Object>>>;
 
 #[derive(Debug)]
 pub struct Environment {
@@ -174,10 +177,14 @@ impl Environment {
         }
     }
 
-    pub fn new_with(env: EnvironmentScope) -> Self {
+    pub fn new_with(env: Vec<EnvironmentScope>) -> Self {
         Self {
-            values: vec![env],
+            values: env,
         }
+    }
+
+    pub fn get_current(&self) -> Vec<EnvironmentScope> {
+        self.values[0..self.values.len()].to_vec()
     }
 
     pub fn define(&mut self, name: String, val: Object) {
@@ -226,9 +233,18 @@ macro_rules! map_int_err {
     ($e:expr,$token:ident) => { ($e).map_err(|e| int_err!($token.clone(), e)) }
 }
 
-macro_rules! int_err {
-    ($t:expr,$e:expr) => { StateChange::Error(InterpreterError($t,$e)) }
+macro_rules! st_err {
+    ($t:expr,$e:expr) => { StateChange::Err(IntErr($t,$e)) }
 }
+
+macro_rules! int_err {
+    ($t:expr,$e:expr) => { IntErr($t,$e) }
+}
+
+macro_rules! int_to_st {
+    ($t:expr) => { ($t).map_err(|e| StateChange::Err(e)) }
+}
+
 
 impl Interpreter {
     pub fn new() -> Self {
@@ -237,10 +253,16 @@ impl Interpreter {
         }
     }
 
-    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<Option<Object>,StateChange> {
+    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<Option<Object>,IntErr> {
         let mut res: Option<Object> = None;
         for stmt in statements {
-            res = self.execute(&stmt)?;
+            let exec_res = self.execute(&stmt);
+            res = match exec_res {
+                Ok(val) => Ok(val),
+                Err(StateChange::Return(_)) => Err(IntErr(stmt.get_token(), ErrReason::ReturnOutsideOfFunction)),
+                Err(StateChange::ErrReason(reason)) => Err(IntErr(stmt.get_token(), reason)),
+                Err(StateChange::Err(err)) => Err(err),
+            }?;
         }
         Ok(res)
     }
@@ -251,19 +273,19 @@ impl Interpreter {
 
     fn execute(&mut self, stmt: &Stmt) -> Result<Option<Object>,StateChange> {
         match stmt {
-            Stmt::Expr(expr) => Ok(Some(self.evaluate(expr)?)),
+            Stmt::Expr(expr) => Ok(Some(int_to_st!(self.evaluate(expr))?)),
             Stmt::If(cond, thenb, elseb) => Ok(self.exec_if(cond, thenb, elseb.as_ref().map(|v| v.as_ref()))?),
             Stmt::Print(expr) => Ok(self.exec_print(expr)?),
-            Stmt::Return(expr) => Ok(self.exec_return(expr)?),
+            Stmt::Return(_, expr) => Ok(self.exec_return(expr)?),
             Stmt::While(cond, body) => Ok(self.exec_while(cond, body)?),
             Stmt::Fun(fun) => Ok(self.exec_fun(fun.clone())?),
             Stmt::Var(name, expr) => Ok(self.exec_var(name, expr)?),
-            Stmt::Block(stmts) => Ok(self.exec_block(stmts)?),
+            Stmt::Block(_, stmts) => Ok(self.exec_block(stmts)?),
         }
     }
 
     fn exec_if(&mut self, cond: &Expr, thenb: &Stmt, elseb: Option<&Stmt>) -> Result<Option<Object>,StateChange> {
-        if self.evaluate(cond)?.is_truthy() {
+        if int_to_st!(self.evaluate(cond))?.is_truthy() {
             self.execute(thenb)
         } else if let Some(elseb) = elseb {
             self.execute(elseb)
@@ -273,26 +295,26 @@ impl Interpreter {
     }
 
     fn exec_print(&mut self, expr: &Expr) -> Result<Option<Object>,StateChange> {
-        println!("{}", self.evaluate(expr)?);
+        println!("{}", int_to_st!(self.evaluate(expr))?);
         Ok(None)
     }
 
     fn exec_return(&mut self, expr: &Option<Expr>) -> Result<Option<Object>,StateChange> {
         match expr {
-            Some(expr) => Err(StateChange::Return(self.evaluate(expr)?)),
+            Some(expr) => Err(StateChange::Return(int_to_st!(self.evaluate(expr))?)),
             None => Err(StateChange::Return(Object::Nil))
         }
     }
 
     fn exec_while(&mut self, cond: &Expr, body: &Stmt) -> Result<Option<Object>,StateChange> {
-        while self.evaluate(cond)?.is_truthy() {
+        while int_to_st!(self.evaluate(cond))?.is_truthy() {
             self.execute(body)?;
         }
         Ok(None)
     }
 
     fn exec_fun(&mut self, fun: Rc<FunctionStmt>) -> Result<Option<Object>,StateChange> {
-        let function = Function::new(fun.clone());
+        let function = Function::new(fun.clone(), self.env.get_current());
         self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Rc::new(function))));
         Ok(None)
     }
@@ -300,14 +322,14 @@ impl Interpreter {
     fn exec_var(&mut self, name: &Token, val: &Option<Expr>) -> Result<Option<Object>,StateChange> {
         if let TokenType::Identifier(name) = &name.token_type {
             if let Some(expr) = val {
-                let value = self.evaluate(expr)?;
+                let value = int_to_st!(self.evaluate(expr))?;
                 self.env.define(name.clone(), value);
             } else {
                 self.env.define(name.clone(), Object::Nil);
             }
             Ok(None)
         } else {
-            Err(int_err!(name.clone(), InterpreterErrorReason::ExpectedToken(TokenTypeDiscriminants::Identifier)))
+            Err(st_err!(name.clone(), ErrReason::ExpectedToken(TokenTypeDiscriminants::Identifier)))
         }
     }
 
@@ -341,7 +363,7 @@ impl Interpreter {
         Ok(return_val)
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> Result<Object,StateChange> {
+    fn evaluate(&mut self, expr: &Expr) -> Result<Object,IntErr> {
         match expr {
             Expr::Assign(name, expr) => self.evaluate_assign(name, expr),
             Expr::Logical(left, op, right) => self.evaluate_logical(left, op, right),
@@ -354,31 +376,31 @@ impl Interpreter {
         }
     }
 
-    fn get_object(&mut self, token: &Token) -> Result<Object,StateChange> {
+    fn get_object(&mut self, token: &Token) -> Result<Object,IntErr> {
         match &token.token_type {
             TokenType::Keyword(k) => match k {
                 Keyword::True => Ok(Object::Bool(true)),
                 Keyword::False => Ok(Object::Bool(false)),
                 Keyword::Nil => Ok(Object::Nil),
-                _ => Err(int_err!(token.clone(), InterpreterErrorReason::NotALiteral)),
+                _ => Err(int_err!(token.clone(), ErrReason::NotALiteral)),
             },
             TokenType::String(obj) => Ok(obj.clone()),
             TokenType::Number(obj) => Ok(obj.clone()),
-            _ => Err(int_err!(token.clone(), InterpreterErrorReason::NotALiteral)),
+            _ => Err(int_err!(token.clone(), ErrReason::NotALiteral)),
         }
     }
 
-    fn evaluate_unary(&mut self, token: &Token, expr: &Expr) -> Result<Object,StateChange> {
+    fn evaluate_unary(&mut self, token: &Token, expr: &Expr) -> Result<Object,IntErr> {
         let right = self.evaluate(expr)?;
 
         match &token.token_type {
             TokenType::Minus => map_int_err!(right.neg(), token),
             TokenType::Bang => Ok(Object::Bool(!right.is_truthy())),
-            _ => Err(int_err!(token.clone(), InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&token.token_type)))),
+            _ => Err(int_err!(token.clone(), ErrReason::InvalidOperator(TokenTypeDiscriminants::from(&token.token_type)))),
         }
     }
 
-    fn evaluate_logical(&mut self, left: &Expr, op: &Keyword, right: &Expr) -> Result<Object,StateChange> {
+    fn evaluate_logical(&mut self, left: &Expr, op: &Keyword, right: &Expr) -> Result<Object,IntErr> {
         let left = self.evaluate(left)?;
         if *op == Keyword::Or {
             if left.is_truthy() {
@@ -393,7 +415,7 @@ impl Interpreter {
         self.evaluate(right)
     }
 
-    fn evaluate_binary(&mut self, left: &Expr, op: &Token, right: &Expr) -> Result<Object,StateChange> {
+    fn evaluate_binary(&mut self, left: &Expr, op: &Token, right: &Expr) -> Result<Object,IntErr> {
         let left = self.evaluate(left)?;
         let right = self.evaluate(right)?;
 
@@ -409,11 +431,11 @@ impl Interpreter {
             TokenType::EqualEqual => map_int_err!(left.equal(&right), op),
             TokenType::BangEqual => map_int_err!(left.equal(&right), op).and_then(|v| map_int_err!(v.not(), op)),
             _ => Err(int_err!(op.clone(), 
-                  InterpreterErrorReason::InvalidOperator(TokenTypeDiscriminants::from(&op.token_type)))),
+                  ErrReason::InvalidOperator(TokenTypeDiscriminants::from(&op.token_type)))),
         }
     }
 
-    fn evaluate_call(&mut self, callee: &Expr, paren: &Token, args: &Vec<Expr>) -> Result<Object,StateChange> {
+    fn evaluate_call(&mut self, callee: &Expr, paren: &Token, args: &Vec<Expr>) -> Result<Object,IntErr> {
         let callee = self.evaluate(callee)?;
         let mut eval_args = Vec::new();
         for arg in args {
@@ -423,24 +445,24 @@ impl Interpreter {
             Ok(Some(val)) => Ok(val),
             Ok(None) => Ok(Object::Nil),
             Err(StateChange::Return(value)) => Ok(value),
-            Err(StateChange::ErrorReason(reason)) => Err(StateChange::Error(InterpreterError(paren.clone(), reason))),
-            Err(StateChange::Error(err)) => Err(StateChange::Error(err)),
+            Err(StateChange::ErrReason(reason)) => Err(IntErr(paren.clone(), reason)),
+            Err(StateChange::Err(err)) => Err(err),
         }
     }
 
-    fn evaluate_variable(&mut self, name: &Token) -> Result<Object,StateChange> {
+    fn evaluate_variable(&mut self, name: &Token) -> Result<Object,IntErr> {
         self.env.get(&name.lexeme).map_or(
-            Err(int_err!(name.clone(), InterpreterErrorReason::UndefinedVariable)),
+            Err(int_err!(name.clone(), ErrReason::UndefinedVariable)),
             |v| Ok(v.clone())
         )
     }
 
-    fn evaluate_assign(&mut self, name: &Token, expr: &Expr) -> Result<Object,StateChange> {
+    fn evaluate_assign(&mut self, name: &Token, expr: &Expr) -> Result<Object,IntErr> {
         let value = self.evaluate(expr)?;
         if let Some(_) = self.env.assign(name.lexeme.clone(), value.clone()) {
             Ok(value)
         } else {
-            Err(int_err!(name.clone(), InterpreterErrorReason::UndefinedVariable))
+            Err(int_err!(name.clone(), ErrReason::UndefinedVariable))
         }
     }
 }
@@ -451,17 +473,16 @@ impl Interpreter {
 #[derive(Debug, Clone)]
 pub enum StateChange {
     Return(Object),
-    Error(InterpreterError),
-    ErrorReason(InterpreterErrorReason),
-    //just for error reason so that call in object works?
+    Err(IntErr),
+    ErrReason(ErrReason),
 }
 
 #[derive(Debug, Clone)]
 //TODO: change to just error
-pub struct InterpreterError(pub Token, pub InterpreterErrorReason);
+pub struct IntErr(pub Token, pub ErrReason);
 
 #[derive(Debug, Clone)]
-pub enum InterpreterErrorReason {
+pub enum ErrReason {
     NotALiteral,
     UndefinedVariable,
     InvalidBinaryOperands(ObjectDiscriminants, OperationType, ObjectDiscriminants),
@@ -470,5 +491,5 @@ pub enum InterpreterErrorReason {
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),
     ExpectedToken(TokenTypeDiscriminants),
-    UserCallError(Box<InterpreterError>),
+    ReturnOutsideOfFunction,
 }

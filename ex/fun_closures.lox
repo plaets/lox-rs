@@ -1,0 +1,22 @@
+//so yeah
+//i do need garbage collection lmao
+//maybe the gcmodule create will be enough idk
+while(true) {
+    fun makeCounter() {
+        var i = 0;
+        fun count() {
+            i = i + 1;
+            print i;    
+        }
+        return count;
+    }
+
+    var counter = makeCounter();
+    var counter2 = makeCounter();
+    counter();
+    counter2();
+    counter();
+    counter();
+    counter2();
+    counter2();
+}

@@ -10,13 +10,28 @@ pub enum Stmt {
     Expr(Expr),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),    //cond, then, else
     Print(Expr),
-    Return(Option<Expr>), 
+    Return(Box<Token>, Option<Expr>), 
     While(Expr, Box<Stmt>),                    //cond, body
     Var(Box<Token>, Option<Expr>),                  //name, init
     //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
     Fun(Rc<FunctionStmt>),
     //having tokens here is pretty cool as it allows better error handling 
-    Block(Vec<Stmt>),
+    Block(Box<Token>, Vec<Stmt>),
+}
+
+impl Stmt {
+    pub fn get_token(&self) -> Token {
+        match self {
+            Stmt::Expr(expr) => expr.get_token(),
+            Stmt::If(expr, _, _) => expr.get_token(),
+            Stmt::Print(expr) => expr.get_token(),
+            Stmt::Return(token, expr) => *(token.clone()),
+            Stmt::While(expr, _) => expr.get_token(),
+            Stmt::Var(token, _) => *(token.clone()),
+            Stmt::Fun(fun_stmt) => *(fun_stmt.0.clone()),
+            Stmt::Block(token, _) => *(token.clone()),
+        }
+    }
 }
 
 #[derive(Debug,Clone)]
@@ -29,6 +44,21 @@ pub enum Expr {
     Literal(Box<Token>),
     Variable(Box<Token>),                           //name
     Grouping(Box<Expr>),
+}
+
+impl Expr {
+    pub fn get_token(&self) -> Token {
+        match self {
+            Expr::Assign(token, _) => *(token.clone()),
+            Expr::Logical(expr, _, _) => expr.get_token(),
+            Expr::Binary(_, op, _) => *(op.clone()),
+            Expr::Call(_, paren, _) => *(paren.clone()),
+            Expr::Unary(op, _) => *(op.clone()),
+            Expr::Literal(token) => *(token.clone()),
+            Expr::Variable(token) => *(token.clone()),
+            Expr::Grouping(expr) => expr.get_token(),
+        }
+    }
 }
 
 pub struct Parser {
@@ -120,7 +150,7 @@ impl Parser {
 
         self.consume(TokenTypeDiscriminants::RightParen, Some(ParseErrorReason::ExpectedFunctionParameterOrRightParen))?;
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
-        if let Stmt::Block(block) = self.block()? {
+        if let Stmt::Block(_, block) = self.block()? {
             Ok(Stmt::Fun(Rc::new(FunctionStmt(Box::new(name), parameters, block))))
         } else {
             Err(ParseError(self.peek(), ParseErrorReason::Other("internal error: expected a block".to_owned())))
@@ -148,11 +178,12 @@ impl Parser {
 
     fn block(&mut self) -> Result<Stmt,ParseError> {
         let mut stmts: Vec<Stmt> = Vec::new();
+        let start = self.previous();
         while !self.check(TokenTypeDiscriminants::RightBrace) && !self.is_at_end() {
             stmts.push(self.declaration()?);
         }
         self.consume(TokenTypeDiscriminants::RightBrace, None)?;
-        Ok(Stmt::Block(stmts))
+        Ok(Stmt::Block(Box::new(start), stmts))
     }
 
     fn if_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -170,7 +201,7 @@ impl Parser {
     }
 
     fn for_statement(&mut self) -> Result<Stmt,ParseError> {
-        self.consume(TokenTypeDiscriminants::LeftParen, None)?;
+        let start = Box::new(self.consume(TokenTypeDiscriminants::LeftParen, None)?);
 
         let init: Option<Stmt>;
         if self.match_tokens(vec![TokenTypeDiscriminants::Semicolon]) {
@@ -197,7 +228,7 @@ impl Parser {
         let mut body = self.statement()?;
 
         if let Some(inc) = inc {
-            body = Stmt::Block(vec![
+            body = Stmt::Block(start.clone(), vec![
                 body,
                 Stmt::Expr(inc),
             ]);
@@ -212,7 +243,7 @@ impl Parser {
         }
 
         if let Some(init) = init {
-            body = Stmt::Block(vec![
+            body = Stmt::Block(start.clone(), vec![
                 init,
                 body,
             ])
@@ -235,7 +266,7 @@ impl Parser {
             value = Some(self.expression()?);
         }
         self.consume(TokenTypeDiscriminants::Semicolon, None)?;
-        Ok(Stmt::Return(value))
+        Ok(Stmt::Return(Box::new(keyword), value))
     }
 
     fn while_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -445,19 +476,6 @@ impl Parser {
             self.advance();
         }
     }
-
-    //fn error(&self, token: Token, msg: String) {
-    //    if TokenTypeDiscriminants::from(token.token_type) == TokenTypeDiscriminants::Eof {
-    //        self.report(token.line, "at end", &msg);
-    //    } else {
-    //        self.report(token.line, &(" at '".to_owned() + &token.lexeme + "'"), &msg);
-    //    }
-    //}
-
-    //fn report(&self, line: usize, err_where: &str, msg: &str) {
-    //    let s: String = format!("[line {}] Error {}: {}", line, err_where, msg);
-    //    stderr().write_all(s.as_bytes());
-    //}
 }
 
 #[derive(Debug, Clone)]

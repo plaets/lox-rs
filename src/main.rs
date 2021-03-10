@@ -14,6 +14,7 @@ use interpreter::*;
 mod native;
 mod function;
 
+//TODO: main cleanup
 fn error(line: usize, msg: &str) {
     report(line, "", msg)
 }
@@ -23,7 +24,7 @@ fn report(line: usize, err_where: &str, msg: &str) {
     stderr().write_all(s.as_bytes()).unwrap();
 }
 
-fn run(data: &str, interpreter: &mut Interpreter) -> Result<Option<Object>,StateChange> {
+fn run(data: &str, interpreter: &mut Interpreter) -> Result<Option<Object>,IntErr> {
     let mut scanner = Scanner::new(data.to_string());
     let tokens = scanner.scan_tokens();
     if let Ok(_tokens) = tokens {
