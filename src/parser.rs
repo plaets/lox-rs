@@ -390,7 +390,7 @@ impl Parser {
 
         if self.match_tokens(vec![TokenTypeDiscriminants::LeftParen]) {
             let expr = self.expression()?;
-            self.consume(TokenTypeDiscriminants::Semicolon, None)?;
+            self.consume(TokenTypeDiscriminants::RightParen, None)?;
             return Ok(Expr::Grouping(Box::new(expr)))
         }
 
