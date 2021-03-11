@@ -278,7 +278,6 @@ impl Interpreter {
             Stmt::Print(expr) => Ok(self.exec_print(expr)?),
             Stmt::Return(_, expr) => Ok(self.exec_return(expr)?),
             Stmt::While(cond, body) => Ok(self.exec_while(cond, body)?),
-            Stmt::Fun(fun) => Ok(self.exec_fun(fun.clone())?),
             Stmt::Var(name, expr) => Ok(self.exec_var(name, expr)?),
             Stmt::Block(_, stmts) => Ok(self.exec_block(stmts)?),
         }
@@ -310,12 +309,6 @@ impl Interpreter {
         while int_to_st!(self.evaluate(cond))?.is_truthy() {
             self.execute(body)?;
         }
-        Ok(None)
-    }
-
-    fn exec_fun(&mut self, fun: Rc<FunctionStmt>) -> Result<Option<Object>,StateChange> {
-        let function = Function::new(fun.clone(), self.env.get_current());
-        self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Rc::new(function))));
         Ok(None)
     }
 
@@ -373,7 +366,17 @@ impl Interpreter {
             Expr::Literal(token) => self.get_object(&token),
             Expr::Variable(name) => self.evaluate_variable(name),
             Expr::Grouping(expr) => self.evaluate(&expr),
+            Expr::Fun(_, fun) => self.eval_fun(fun.clone()),
         }
+    }
+
+    fn eval_fun(&mut self, fun: Rc<FunctionStmt>) -> Result<Object,IntErr> {
+        let function = Function::new(fun.clone(), self.env.get_current());
+        let callable = Object::Callable(CallableObject::new(Rc::new(function)));
+        if let Some(name) = &fun.0 {
+            self.env.define(name.lexeme.to_string(), callable.clone());
+        } 
+        Ok(callable)
     }
 
     fn get_object(&mut self, token: &Token) -> Result<Object,IntErr> {

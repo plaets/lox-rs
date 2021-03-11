@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::lexer::*;
 
 #[derive(Debug,Clone)]
-pub struct FunctionStmt(pub Box<Token>, pub Vec<Token>, pub Vec<Stmt>);     //name, args, body
+pub struct FunctionStmt(pub Option<Box<Token>>, pub Vec<Token>, pub Vec<Stmt>);     //name, args, body
 
 #[derive(Debug,Clone)]
 pub enum Stmt {
@@ -14,7 +14,6 @@ pub enum Stmt {
     While(Expr, Box<Stmt>),                    //cond, body
     Var(Box<Token>, Option<Expr>),                  //name, init
     //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
-    Fun(Rc<FunctionStmt>),
     //having tokens here is pretty cool as it allows better error handling 
     Block(Box<Token>, Vec<Stmt>),
 }
@@ -28,7 +27,6 @@ impl Stmt {
             Stmt::Return(token, expr) => *(token.clone()),
             Stmt::While(expr, _) => expr.get_token(),
             Stmt::Var(token, _) => *(token.clone()),
-            Stmt::Fun(fun_stmt) => *(fun_stmt.0.clone()),
             Stmt::Block(token, _) => *(token.clone()),
         }
     }
@@ -44,6 +42,7 @@ pub enum Expr {
     Literal(Box<Token>),
     Variable(Box<Token>),                           //name
     Grouping(Box<Expr>),
+    Fun(Box<Token>, Rc<FunctionStmt>),
 }
 
 impl Expr {
@@ -57,6 +56,7 @@ impl Expr {
             Expr::Literal(token) => *(token.clone()),
             Expr::Variable(token) => *(token.clone()),
             Expr::Grouping(expr) => expr.get_token(),
+            Expr::Fun(keyword, _) => *(keyword.clone()),
         }
     }
 }
@@ -112,8 +112,6 @@ impl Parser {
     fn declaration(&mut self) -> Result<Stmt,ParseError> {
         if self.match_keyword(Keyword::Var) {
             sync_on_err!(self, self.var_declaration())
-        } else if self.match_keyword(Keyword::Fun) {
-            sync_on_err!(self, self.fun_declaration())
         } else {
             sync_on_err!(self, self.statement())
         }
@@ -130,8 +128,15 @@ impl Parser {
     }
 
     //this could return FunctionStmt i guess... sorta inconsistent
-    fn fun_declaration(&mut self) -> Result<Stmt,ParseError> {
-        let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedFunctionName))?;
+    fn fun_expr(&mut self) -> Result<Expr,ParseError> {
+        let keyword = self.previous();
+        let mut name; 
+        if let Ok(n) = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedFunctionName)) {
+            name = Some(Box::new(n));
+        } else {
+            name = None;
+        }
+
         self.consume(TokenTypeDiscriminants::LeftParen, None)?;
 
         let mut parameters: Vec<Token> = Vec::new();
@@ -151,7 +156,7 @@ impl Parser {
         self.consume(TokenTypeDiscriminants::RightParen, Some(ParseErrorReason::ExpectedFunctionParameterOrRightParen))?;
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
         if let Stmt::Block(_, block) = self.block()? {
-            Ok(Stmt::Fun(Rc::new(FunctionStmt(Box::new(name), parameters, block))))
+            Ok(Expr::Fun(Box::new(keyword), Rc::new(FunctionStmt(name, parameters, block))))
         } else {
             Err(ParseError(self.peek(), ParseErrorReason::Other("internal error: expected a block".to_owned())))
         }
@@ -279,7 +284,9 @@ impl Parser {
 
     fn expr_statement(&mut self) -> Result<Stmt,ParseError> {
         let value = self.expression()?;
-        self.consume(TokenTypeDiscriminants::Semicolon, None)?;
+        if let Expr::Fun(_,_) = value { } else {
+            self.consume(TokenTypeDiscriminants::Semicolon, None)?;
+        }
         Ok(Stmt::Expr(value))
     }
 
@@ -373,6 +380,7 @@ impl Parser {
             if let TokenType::Keyword(id) = token_type {
                 match id {
                     Keyword::False | Keyword::True | Keyword::Nil => return Ok(Expr::Literal(Box::new(token))),
+                    Keyword::Fun => return sync_on_err!(self, self.fun_expr()),
                     _ => ()
                 }
             } else {
