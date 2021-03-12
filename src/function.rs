@@ -29,4 +29,8 @@ impl Callable for Function {
     fn arity(&self) -> u8 {
         self.declaration.1.len() as u8
     }
+
+    fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
+        Some(&self.closure)
+    }
 }

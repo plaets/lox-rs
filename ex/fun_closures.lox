@@ -1,12 +1,13 @@
 //so yeah
 //i do need garbage collection lmao
 //maybe the gcmodule create will be enough idk
+var a = clock();
 while(true) {
     fun makeCounter() {
         var i = 0;
         fun count() {
             i = i + 1;
-            print i;    
+            //print i;    
         }
         return count;
     }
@@ -19,4 +20,7 @@ while(true) {
     counter();
     counter2();
     counter2();
+    var b = clock();
+    print b-a;
+    a=b;
 }

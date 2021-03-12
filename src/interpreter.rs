@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::swap;
+use gcmodule::{Cc,Trace,Tracer,collect_thread_cycles};
 use strum_macros::EnumDiscriminants;
 use crate::lexer::{Token, TokenType, TokenTypeDiscriminants, Keyword};
 use crate::parser::{Expr,Stmt,FunctionStmt};
@@ -29,6 +30,9 @@ pub enum OperationType {
 pub trait Callable {
     fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange>;
     fn arity(&self) -> u8;
+    fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -38,13 +42,19 @@ impl CallableObject {
     pub fn new(arg: Rc<dyn Callable>) -> Self {
         Self(arg)
     }
+}
 
-    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange> {
+impl Callable for CallableObject {
+    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange> {
         self.0.call(interpreter, args)
     }
 
-    pub fn arity(&self) -> u8 {
+    fn arity(&self) -> u8 {
         self.0.arity()
+    }
+
+    fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
+        self.0.get_closure()
     }
 }
 
@@ -162,8 +172,18 @@ impl fmt::Display for Object {
     }
 }
 
+impl Trace for Object {
+    fn trace(&self, tracer: &mut Tracer) {
+        match self {
+            Object::Callable(callable) => if let Some(env) = callable.get_closure() {
+                env.trace(tracer)
+            }
+            _ => {},
+        }
+    }
+}
 
-pub type EnvironmentScope = Rc<RefCell<HashMap<String, Object>>>;
+pub type EnvironmentScope = Cc<RefCell<HashMap<String, Object>>>;
 
 #[derive(Debug)]
 pub struct Environment {
@@ -173,7 +193,7 @@ pub struct Environment {
 impl Environment {
     pub fn new() -> Self {
         Self {
-            values: vec![Rc::new(RefCell::new(HashMap::new()))]
+            values: vec![Cc::new(RefCell::new(HashMap::new()))]
         }
     }
 
@@ -205,22 +225,24 @@ impl Environment {
     }
 
     pub fn push(&mut self) {
-        self.values.push(Rc::new(RefCell::new(HashMap::new())));
+        self.values.push(Cc::new(RefCell::new(HashMap::new())));
     }
     
     pub fn push_foreign(&mut self, scope: EnvironmentScope) {
         self.values.push(scope)
     }
 
-    pub fn pop(&mut self) -> Option<Rc<RefCell<HashMap<String, Object>>>> {
+    pub fn pop(&mut self) -> Option<EnvironmentScope> {
         if self.values.len() > 1 {
-            self.values.pop()
+            let ret = self.values.pop();
+            collect_thread_cycles(); //TODO: should i collect this shit here?
+            ret
         } else {
             None
         }
     }
 
-    pub fn globals(&mut self) -> Rc<RefCell<HashMap<String, Object>>> {
+    pub fn globals(&mut self) -> EnvironmentScope {
         self.values.iter().next().unwrap().clone()
     }
 }
