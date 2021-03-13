@@ -67,6 +67,7 @@ impl Environment {
         self.values.push(Cc::new(RefCell::new(HashMap::new())));
     }
     
+    #[allow(unused)]
     pub fn push_foreign(&mut self, scope: EnvironmentScope) {
         self.values.push(scope)
     }
@@ -79,6 +80,7 @@ impl Environment {
         }
     }
 
+    #[allow(unused)]
     pub fn globals(&mut self) -> EnvironmentScope {
         self.values.get(0).unwrap().clone()
     }
