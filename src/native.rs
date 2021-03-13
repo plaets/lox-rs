@@ -1,5 +1,6 @@
 use std::time;
-use crate::interpreter::{Callable,Interpreter,Object,StateChange};
+use crate::object::{Callable,Object};
+use crate::interpreter::{Interpreter,StateChange};
 
 pub struct Clock { }
 impl Callable for Clock {

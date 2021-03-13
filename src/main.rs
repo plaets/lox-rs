@@ -12,7 +12,9 @@ use parser::*;
 mod interpreter;
 use interpreter::*;
 mod native;
-mod function;
+mod object;
+use object::{Object,BoxValues,CallableObject};
+mod ast;
 
 #[cfg(test)]
 mod tests;
@@ -38,7 +40,7 @@ fn run(data: &str, interpreter: &mut Interpreter) -> Result<Option<Object>,IntEr
 
 fn get_default_interpreter() -> Interpreter {
     let mut interpreter = Interpreter::new();
-    interpreter.get_env().define("clock".to_owned(), interpreter::Object::Callable(interpreter::CallableObject::new(Cc::new(BoxValues(Box::new(native::Clock{}))))));
+    interpreter.get_env().define("clock".to_owned(), Object::Callable(CallableObject::new(Cc::new(BoxValues(Box::new(native::Clock{}))))));
     interpreter
 }
 

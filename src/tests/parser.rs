@@ -1,9 +1,10 @@
+use crate::ast::*;
 use crate::lexer::*;
 use crate::parser::*;
 
 fn parse(data: &str) -> Result<Vec<Stmt>,ParseError> {
     let mut scanner = Scanner::new(data.to_string());
-    let tokens = scanner.scan_tokens();
+    scanner.scan_tokens().unwrap();
     let mut parser = Parser::new(scanner.tokens.clone());
     parser.parse()
 }
@@ -31,6 +32,8 @@ fn parse_str_stmts(v: &str) -> String {
     stringify_block(&parse(v))
 }
 
+//im not sure if comparing stringified trees is a good idea but bulding the trees by hand is way to
+//tedious
 #[test]
 fn test_basic_expr() {
     let tree = parse("2+2;");
@@ -56,5 +59,6 @@ fn test_logical_expr() {
 
 #[test]
 fn test_if() {
-    assert_eq!(parse_str_stmts("if(2 == 4) { 4; } else { 3; }"), "[(if (== 2 4) [4] [3])]")
+    assert_eq!(parse_str_stmts("if(2 == 4) { 4; }"), "[(if (== 2 4) [4])]");
+    assert_eq!(parse_str_stmts("if(2 == 4) { 4; } else { 3; }"), "[(if (== 2 4) [4] [3])]");
 }

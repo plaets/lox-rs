@@ -1,89 +1,5 @@
-use std::fmt;
 use std::clone::Clone;
-use strum_macros::EnumDiscriminants;
-use crate::interpreter::Object;
-
-//is this enum necessary
-#[enumeration(rename_all = "snake_case")]
-#[derive(Debug, Clone, PartialEq, enum_utils::FromStr)]
-pub enum Keyword {
-    And,
-    Class,
-    Else,
-    False,
-    For,
-    Fun,
-    If,
-    Nil,
-    Or,
-    Print,
-    Return,
-    Super,
-    This,
-    True,
-    Var,
-    While,
-}
-
-#[derive(Debug, Clone, PartialEq, EnumDiscriminants)]
-pub enum TokenType {
-    LeftParen,
-    RightParen,
-    LeftBrace,
-    RightBrace,
-    Comma,
-    Dot,
-    Minus,
-    Plus,
-    Semicolon,
-    Star,
-
-    Bang,
-    BangEqual,
-    EqualEqual,
-    Equal,
-    LessEqual,
-    Less,
-    GreaterEqual,
-    Greater,
-
-    String(Object),             //TODO: how to handle invlaid variants like TokenType::String(Object::Number)?
-    Number(Object),
-    Keyword(Keyword),
-    Identifier(String),
-
-    Slash,
-    Eof,
-}
-
-#[derive(Clone,Debug)]
-pub struct Token {
-    pub token_type: TokenType,
-    pub lexeme: String,
-    pub line: usize,
-}
-
-//impl fmt::Debug for Token {
-//    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//        write!(f, "{:?}", self.token_type)
-//    }
-//}
-
-impl Token {
-    pub fn new(token_type: TokenType, lexeme: String, line: usize) -> Self {
-        Self {
-            token_type,
-            lexeme,
-            line,
-        }
-    }
-}
-
-impl fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?} {}", self.token_type, self.lexeme)
-    }
-}
+use crate::ast::{Token,TokenType,Keyword};
 
 #[derive(Debug, Clone)]
 pub enum ScannerErrorReason {
@@ -216,7 +132,7 @@ impl Scanner {
 
         self.advance();
         let value = self.source_iter[self.start+1..self.current-1].iter().collect::<String>();
-        Ok(Some(self.make_token(TokenType::String(Object::String(value)))))
+        Ok(Some(self.make_token(TokenType::String(value))))
     }
 
     fn number(&mut self) -> Result<Option<Token>,ScannerError> {
@@ -241,9 +157,9 @@ impl Scanner {
         }
 
         let value = self.source_iter[self.start..self.current].iter().collect::<String>();
-        Ok(Some(self.make_token(TokenType::Number(Object::Number(value.parse::<f64>()
+        Ok(Some(self.make_token(TokenType::Number(value.parse::<f64>()
                 .map_err(|_| ScannerError(self.line, ScannerErrorReason::InvalidNumber))?
-        )))))
+        ))))
     }
 
     fn is_alpha(&self, c: char) -> bool {
