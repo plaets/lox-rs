@@ -1,9 +1,13 @@
 use std::fmt;
-use std::rc::Rc;
 use crate::lexer::*;
+use gcmodule::{Cc,Trace,Tracer};
 
 #[derive(Debug,Clone)]
 pub struct FunctionStmt(pub Box<Token>, pub Vec<Token>, pub Vec<Stmt>);     //name, args, body
+
+impl Trace for FunctionStmt {
+    fn trace(&self, _tracer: &mut Tracer) { }
+}
 
 #[derive(Debug,Clone)]
 pub enum Stmt {
@@ -14,7 +18,7 @@ pub enum Stmt {
     While(Expr, Box<Stmt>),                    //cond, body
     Var(Box<Token>, Option<Expr>),                  //name, init
     //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
-    Fun(Rc<FunctionStmt>),
+    Fun(Cc<FunctionStmt>),
     //having tokens here is pretty cool as it allows better error handling 
     Block(Box<Token>, Vec<Stmt>),
 }
@@ -25,7 +29,7 @@ impl Stmt {
             Stmt::Expr(expr) => expr.get_token(),
             Stmt::If(expr, _, _) => expr.get_token(),
             Stmt::Print(expr) => expr.get_token(),
-            Stmt::Return(token, expr) => *(token.clone()),
+            Stmt::Return(token, _) => *(token.clone()),
             Stmt::While(expr, _) => expr.get_token(),
             Stmt::Var(token, _) => *(token.clone()),
             Stmt::Fun(fun_stmt) => *(fun_stmt.0.clone()),
@@ -151,7 +155,7 @@ impl Parser {
         self.consume(TokenTypeDiscriminants::RightParen, Some(ParseErrorReason::ExpectedFunctionParameterOrRightParen))?;
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
         if let Stmt::Block(_, block) = self.block()? {
-            Ok(Stmt::Fun(Rc::new(FunctionStmt(Box::new(name), parameters, block))))
+            Ok(Stmt::Fun(Cc::new(FunctionStmt(Box::new(name), parameters, block))))
         } else {
             Err(ParseError(self.peek(), ParseErrorReason::Other("internal error: expected a block".to_owned())))
         }

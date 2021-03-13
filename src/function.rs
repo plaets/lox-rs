@@ -1,14 +1,15 @@
-use std::rc::Rc;
 use crate::interpreter::{Callable,Interpreter,Object,Environment,EnvironmentScope,StateChange};
 use crate::parser::FunctionStmt;
+use gcmodule::{Cc,Trace};
 
+#[derive(Trace)]
 pub struct Function {
-    declaration: Rc<FunctionStmt>,
+    declaration: Cc<FunctionStmt>,
     closure: Vec<EnvironmentScope>,     //maybe env as a linked list was a good idea? im sure i will intrudce so many cool bugs by trying to use slices here
 }
 
 impl Function {
-    pub fn new(declaration: Rc<FunctionStmt>, closure: Vec<EnvironmentScope>) -> Self {
+    pub fn new(declaration: Cc<FunctionStmt>, closure: Vec<EnvironmentScope>) -> Self {
         Self {
             declaration,
             closure,
@@ -34,3 +35,4 @@ impl Callable for Function {
         Some(&self.closure)
     }
 }
+

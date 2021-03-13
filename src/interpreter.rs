@@ -1,5 +1,4 @@
 use std::fmt;
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::swap;
@@ -24,7 +23,6 @@ pub enum OperationType {
     Leq,
     Greater,
     Geq,
-    EqualEqual,
 }
 
 pub trait Callable {
@@ -35,11 +33,34 @@ pub trait Callable {
     }
 }
 
-#[derive(Clone)]
-pub struct CallableObject(Rc<dyn Callable>);
+impl Trace for dyn Callable {
+    fn trace(&self, tracer: &mut Tracer) {
+        if let Some(env) = self.get_closure() {
+            env.trace(tracer)
+        }
+    }
+}
+
+pub struct BoxValues(pub Box<dyn Callable>);
+
+impl Trace for BoxValues {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.0.trace(tracer)
+    }
+}
+
+impl std::ops::Deref for BoxValues {
+    type Target = Box<dyn Callable>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Clone, Trace)]
+pub struct CallableObject(Cc<BoxValues>);
 
 impl CallableObject {
-    pub fn new(arg: Rc<dyn Callable>) -> Self {
+    pub fn new(arg: Cc<BoxValues>) -> Self {
         Self(arg)
     }
 }
@@ -60,7 +81,8 @@ impl Callable for CallableObject {
 
 impl PartialEq for CallableObject {
     fn eq(&self, other: &Self) -> bool {
-        Rc::as_ptr(&self.0) == Rc::as_ptr(&other.0)
+        false
+        //*self.0.as_ref() == *other.0.as_ref()
     }
 }
 
@@ -175,9 +197,7 @@ impl fmt::Display for Object {
 impl Trace for Object {
     fn trace(&self, tracer: &mut Tracer) {
         match self {
-            Object::Callable(callable) => if let Some(env) = callable.get_closure() {
-                env.trace(tracer)
-            }
+            Object::Callable(callable) => callable.trace(tracer), 
             _ => {},
         }
     }
@@ -235,7 +255,6 @@ impl Environment {
     pub fn pop(&mut self) -> Option<EnvironmentScope> {
         if self.values.len() > 1 {
             let ret = self.values.pop();
-            collect_thread_cycles(); //TODO: should i collect this shit here?
             ret
         } else {
             None
@@ -335,9 +354,9 @@ impl Interpreter {
         Ok(None)
     }
 
-    fn exec_fun(&mut self, fun: Rc<FunctionStmt>) -> Result<Option<Object>,StateChange> {
+    fn exec_fun(&mut self, fun: Cc<FunctionStmt>) -> Result<Option<Object>,StateChange> {
         let function = Function::new(fun.clone(), self.env.get_current());
-        self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Rc::new(function))));
+        self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Cc::new(BoxValues(Box::new(function))))));
         Ok(None)
     }
 
@@ -362,6 +381,7 @@ impl Interpreter {
             last_val = self.execute(stmt)?;
         }
         self.env.pop().unwrap();
+        collect_thread_cycles(); //TODO: should i collect this shit here?
         Ok(last_val)
     }
 
