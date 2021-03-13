@@ -3,6 +3,7 @@ use std::io::{stdin, stdout};
 use std::env;
 use std::fs::File;
 use std::path::Path;
+use std::cmp::Ordering;
 use gcmodule::Cc;
 
 mod lexer;
@@ -73,12 +74,12 @@ fn run_prompt() -> Result<(), std::io::Error> {
 }
 
 fn main() -> Result<(), std::io::Error> {
-    if env::args().len() > 2 {
-        println!("Usage: {} script", env::args().nth(0).unwrap());
-        Ok(())
-    } else if env::args().len() == 2 {
-        run_file(&env::args().nth(1).unwrap())
-    } else {
-        run_prompt()
+    match env::args().len().cmp(&2) {
+        Ordering::Greater => {
+            println!("Usage: {} script", env::args().next().unwrap());
+            Ok(())
+        }, 
+        Ordering::Equal => run_file(&env::args().nth(1).unwrap()),
+        Ordering::Less => run_prompt(),
     }
 }

@@ -54,7 +54,7 @@ impl Object {
 
     pub fn equal(&self, other: &Self) -> Result<Self,ErrReason> {
         match (self, other) {
-            (Object::Number(a), Object::Number(b)) => Ok(Object::Bool(a == b)),
+            (Object::Number(a), Object::Number(b)) => Ok(Object::Bool((a-b).abs() < f64::EPSILON)),
             (Object::String(a), Object::String(b)) => Ok(Object::Bool(a == b)),
             (Object::Bool(a), Object::Bool(b)) => Ok(Object::Bool(a == b)),
             (Object::Nil, Object::Nil) => Ok(Object::Bool(true)),
@@ -71,7 +71,7 @@ impl Object {
         }
     }
 
-    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Self>,StateChange> {
+    pub fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Self>,StateChange> {
         match self {
             Object::Callable(f) => {
                 if f.arity() as usize == args.len() {
@@ -108,15 +108,14 @@ impl fmt::Display for Object {
 
 impl Trace for Object {
     fn trace(&self, tracer: &mut Tracer) {
-        match self {
-            Object::Callable(callable) => callable.trace(tracer), 
-            _ => {},
+        if let Object::Callable(callable) = self {
+            callable.trace(tracer)
         }
     }
 }
 
 pub trait Callable {
-    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange>;
+    fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange>;
     fn arity(&self) -> u8;
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
         None
@@ -156,7 +155,7 @@ impl CallableObject {
 }
 
 impl Callable for CallableObject {
-    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange> {
+    fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
         self.0.call(interpreter, args)
     }
 
@@ -200,7 +199,7 @@ impl Function {
 }
 
 impl Callable for Function {
-    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange> {
+    fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
         let mut env = Environment::new_with(self.closure.clone());
         env.push();
         for (name,val) in self.declaration.1.iter().zip(args.iter()) {

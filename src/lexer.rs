@@ -92,7 +92,7 @@ impl Scanner {
                 if self.is_digit(c) {
                     self.number()
                 } else if self.is_alpha(c) {
-                    self.identifier()
+                    Ok(Some(self.identifier())) //im pretty sure identifier should be able to return an error but whatever
                 } else {
                     Err(ScannerError(self.line, ScannerErrorReason::UnexpectedCharacter(c)))
                 }
@@ -100,7 +100,7 @@ impl Scanner {
         }
     }
 
-    fn identifier(&mut self) -> Result<Option<Token>,ScannerError> {
+    fn identifier(&mut self) -> Token {
         loop {
             let c = self.peek();
             if !self.is_alphanumeric(c) {
@@ -111,10 +111,10 @@ impl Scanner {
 
         let value = self.source_iter[self.start..self.current].iter().collect::<String>();
         let keyword = value.parse::<Keyword>();
-        if keyword.is_ok() {
-            Ok(Some(self.make_token(TokenType::Keyword(keyword.unwrap()))))
+        if let Ok(keyword) = keyword {
+            self.make_token(TokenType::Keyword(keyword))
         } else {
-            Ok(Some(self.make_token(TokenType::Identifier(value))))
+            self.make_token(TokenType::Identifier(value))
         }
     }
 
@@ -163,8 +163,8 @@ impl Scanner {
     }
 
     fn is_alpha(&self, c: char) -> bool {
-        (c >= 'a' && c <= 'z') || 
-        (c >= 'A' && c <= 'Z') || 
+        ('a'..'z').contains(&c) || 
+        ('A'..'Z').contains(&c) || 
          c == '_'
     }
 
@@ -173,7 +173,7 @@ impl Scanner {
     }
 
     fn is_digit(&self, c: char) -> bool {
-        c >= '0' && c <= '9'
+        ('0'..'9').contains(&c)
     }
 
     fn peek(&mut self) -> char {
@@ -193,9 +193,7 @@ impl Scanner {
     }
 
     fn match_char(&mut self, chr: char) -> bool {
-        if self.is_at_end() {
-            false
-        } else if self.source_iter[self.current] != chr { //TODO this also is very bad
+        if self.is_at_end() || self.source_iter[self.current] != chr { //TODO this also is very bad
             false
         } else {
             self.current += 1;

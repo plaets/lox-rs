@@ -137,7 +137,7 @@ impl Parser {
             else_branch = Some(self.statement()?);
         }
 
-        Ok(Stmt::If(condition, Box::new(then_branch), else_branch.map(|v| Box::new(v))))
+        Ok(Stmt::If(condition, Box::new(then_branch), else_branch.map(Box::new)))
     }
 
     fn for_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -183,7 +183,7 @@ impl Parser {
         }
 
         if let Some(init) = init {
-            body = Stmt::Block(start.clone(), vec![
+            body = Stmt::Block(start, vec![
                 init,
                 body,
             ])
@@ -334,7 +334,7 @@ impl Parser {
             return Ok(Expr::Grouping(Box::new(expr)))
         }
 
-        return Err(ParseError(self.peek(), ParseErrorReason::ExpectedExpr))
+        Err(ParseError(self.peek(), ParseErrorReason::ExpectedExpr))
     }
 
     fn match_tokens(&mut self, token_types: Vec<TokenTypeDiscriminants>) -> bool {
@@ -402,15 +402,12 @@ impl Parser {
                 return
             }
 
-            match self.peek().token_type {
-                TokenType::Keyword(k) => {
-                    match k {
-                        Keyword::Class | Keyword::Fun | Keyword::Var | Keyword::For | 
-                            Keyword::If | Keyword::While | Keyword::Print | Keyword::Return => return,
-                        _ => (),
-                    }
+            if let TokenType::Keyword(k) = self.peek().token_type {
+                match k {
+                    Keyword::Class | Keyword::Fun | Keyword::Var | Keyword::For | 
+                        Keyword::If | Keyword::While | Keyword::Print | Keyword::Return => return,
+                    _ => (),
                 }
-                _ => ()
             }
 
             self.advance();

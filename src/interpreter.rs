@@ -59,8 +59,8 @@ impl Environment {
         }
     }
 
-    pub fn get(&self, name: &String) -> Option<Object> {
-        self.values.iter().rev().find_map(|e| e.borrow().get(name).map(|v| v.clone()))
+    pub fn get(&self, name: &str) -> Option<Object> {
+        self.values.iter().rev().find_map(|e| e.borrow().get(name).cloned())
     }
 
     pub fn push(&mut self) {
@@ -73,15 +73,14 @@ impl Environment {
 
     pub fn pop(&mut self) -> Option<EnvironmentScope> {
         if self.values.len() > 1 {
-            let ret = self.values.pop();
-            ret
+            self.values.pop()
         } else {
             None
         }
     }
 
     pub fn globals(&mut self) -> EnvironmentScope {
-        self.values.iter().next().unwrap().clone()
+        self.values.get(0).unwrap().clone()
     }
 }
 
@@ -102,7 +101,7 @@ macro_rules! int_err {
 }
 
 macro_rules! int_to_st {
-    ($t:expr) => { ($t).map_err(|e| StateChange::Err(e)) }
+    ($t:expr) => { ($t).map_err(StateChange::Err) }
 }
 
 
@@ -113,7 +112,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<Option<Object>,IntErr> {
+    pub fn interpret(&mut self, statements: &[Stmt]) -> Result<Option<Object>,IntErr> {
         let mut res: Option<Object> = None;
         for stmt in statements {
             let exec_res = self.execute(&stmt);
@@ -173,6 +172,7 @@ impl Interpreter {
         Ok(None)
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn exec_fun(&mut self, fun: Cc<FunctionStmt>) -> Result<Option<Object>,StateChange> {
         let function = Function::new(fun.clone(), self.env.get_current());
         self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Cc::new(BoxValues(Box::new(function))))));
@@ -193,7 +193,7 @@ impl Interpreter {
         }
     }
 
-    fn exec_block(&mut self, stmts: &Vec<Stmt>) -> Result<Option<Object>,StateChange> {
+    fn exec_block(&mut self, stmts: &[Stmt]) -> Result<Option<Object>,StateChange> {
         self.env.push();
         let mut last_val: Option<Object> = None;
         for stmt in stmts {
@@ -204,7 +204,7 @@ impl Interpreter {
         Ok(last_val)
     }
 
-    pub fn exec_block_in_env(&mut self, stmts: &Vec<Stmt>, env: &mut Environment) -> Result<Option<Object>,StateChange> {
+    pub fn exec_block_in_env(&mut self, stmts: &[Stmt], env: &mut Environment) -> Result<Option<Object>,StateChange> {
         //this fucking sucks there is no way this works
         //function calling needs to be implemented differently
         //maybe it was a good idea to use linked lists after all
@@ -294,7 +294,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate_call(&mut self, callee: &Expr, paren: &Token, args: &Vec<Expr>) -> Result<Object,IntErr> {
+    fn evaluate_call(&mut self, callee: &Expr, paren: &Token, args: &[Expr]) -> Result<Object,IntErr> {
         let callee = self.evaluate(callee)?;
         let mut eval_args = Vec::new();
         for arg in args {
@@ -312,13 +312,13 @@ impl Interpreter {
     fn evaluate_variable(&mut self, name: &Token) -> Result<Object,IntErr> {
         self.env.get(&name.lexeme).map_or(
             Err(int_err!(name.clone(), ErrReason::UndefinedVariable)),
-            |v| Ok(v.clone())
+            Ok,
         )
     }
 
     fn evaluate_assign(&mut self, name: &Token, expr: &Expr) -> Result<Object,IntErr> {
         let value = self.evaluate(expr)?;
-        if let Some(_) = self.env.assign(name.lexeme.clone(), value.clone()) {
+        if self.env.assign(name.lexeme.clone(), value.clone()).is_some() {
             Ok(value)
         } else {
             Err(int_err!(name.clone(), ErrReason::UndefinedVariable))
