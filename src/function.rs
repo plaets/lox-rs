@@ -35,4 +35,3 @@ impl Callable for Function {
         Some(&self.closure)
     }
 }
-

@@ -36,6 +36,22 @@ impl Stmt {
             Stmt::Block(token, _) => *(token.clone()),
         }
     }
+
+    pub fn stringify_tree(&self) -> String {
+        "(".to_string() + &match self {
+            Stmt::Expr(expr) => return expr.stringify_tree(),
+            Stmt::If(expr, then, else_b) => format!("if {} {}", expr.stringify_tree(), then.stringify_tree()) + 
+                                            &else_b.as_ref().map_or("".to_string(), |v| " ".to_string() + &v.stringify_tree()),
+            Stmt::Print(expr) => format!("print {}", expr.stringify_tree()),
+            Stmt::Return(_, expr) => format!("return {}", expr.as_ref().map_or("".to_string(), |v| v.stringify_tree())),
+            Stmt::While(expr, body) => format!("while {} {}", expr.stringify_tree(), body.stringify_tree()),
+            Stmt::Var(name, init) => format!("var {} {}", name.lexeme.clone(), init.as_ref().map_or("".to_string(), |v| v.stringify_tree())),
+            Stmt::Fun(f) => format!("fun {} {:?} {:?}", f.0.lexeme.clone(), 
+                                    f.1.iter().map(|v| v.lexeme.clone()).collect::<Vec<_>>(), 
+                                    format!("[{}]", f.2.iter().fold(String::new(), |t, v| t + &v.stringify_tree()))),
+            Stmt::Block(_, stmts) => return format!("[{}]", stmts.iter().fold(String::new(), |t, v| t + &v.stringify_tree())),
+        }.to_string() + ")"
+    }
 }
 
 #[derive(Debug,Clone)]
@@ -62,6 +78,19 @@ impl Expr {
             Expr::Variable(token) => *(token.clone()),
             Expr::Grouping(expr) => expr.get_token(),
         }
+    }
+
+    pub fn stringify_tree(&self) -> String {
+        "(".to_string() + &match self {
+            Expr::Assign(name, value) => format!("= {} {}", name.lexeme, value.stringify_tree()),
+            Expr::Logical(left, op, right) => format!("{:?} {} {}", op, left.stringify_tree(), right.stringify_tree()),
+            Expr::Binary(left, op, right) => format!("{} {} {}", op.lexeme, left.stringify_tree(), right.stringify_tree()),
+            Expr::Call(callable, _paren, args) => format!("{} {:?}", callable.stringify_tree(), args),
+            Expr::Unary(op, val) => format!("{} {}", op, val.stringify_tree()),
+            Expr::Literal(token) => return token.lexeme.clone(),
+            Expr::Variable(token) => token.lexeme.clone(),
+            Expr::Grouping(expr) => expr.stringify_tree(),
+        }.to_string() + ")"
     }
 }
 
@@ -491,7 +520,7 @@ pub enum ParseErrorReason {
     ExpectedFunctionParameterOrRightParen,
     InvalidAssignmentTarget,
     TooManyArguments,
-    NotImplemented,
+    //NotImplemented,
     Other(String),
 }
 

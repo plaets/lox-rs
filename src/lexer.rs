@@ -96,7 +96,7 @@ pub enum ScannerErrorReason {
 pub struct ScannerError(usize, ScannerErrorReason);
 
 pub struct Scanner {
-    source: String,
+    //source: String,
     pub tokens: Vec<Token>,
     start: usize,
     current: usize,
@@ -117,7 +117,7 @@ macro_rules! match_char {
 impl Scanner {
     pub fn new(source: String) -> Self {
         Self {
-            source: String::new(),
+            //source: String::new(),
             tokens: Vec::new(),
             start: 0,
             current: 0,

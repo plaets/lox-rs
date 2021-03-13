@@ -1,5 +1,5 @@
 use std::io::prelude::*;
-use std::io::{stdin, stdout, stderr};
+use std::io::{stdin, stdout};
 use std::env;
 use std::fs::File;
 use std::path::Path;
@@ -14,15 +14,8 @@ use interpreter::*;
 mod native;
 mod function;
 
-//TODO: main cleanup
-fn error(line: usize, msg: &str) {
-    report(line, "", msg)
-}
-
-fn report(line: usize, err_where: &str, msg: &str) {
-    let s: String = format!("[line {}] Error {}: {}", line, err_where, msg);
-    stderr().write_all(s.as_bytes()).unwrap();
-}
+#[cfg(test)]
+mod tests;
 
 fn run(data: &str, interpreter: &mut Interpreter) -> Result<Option<Object>,IntErr> {
     let mut scanner = Scanner::new(data.to_string());

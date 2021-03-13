@@ -81,8 +81,9 @@ impl Callable for CallableObject {
 
 impl PartialEq for CallableObject {
     fn eq(&self, other: &Self) -> bool {
-        false
-        //*self.0.as_ref() == *other.0.as_ref()
+        let left: *const BoxValues = &*self.0;
+        let right: *const BoxValues = &*other.0;
+        left == right
     }
 }
 
