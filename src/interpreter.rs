@@ -1,8 +1,8 @@
 use std::fmt;
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::swap;
+use gcmodule::{Cc,Trace,Tracer,collect_thread_cycles};
 use strum_macros::EnumDiscriminants;
 use crate::lexer::{Token, TokenType, TokenTypeDiscriminants, Keyword};
 use crate::parser::{Expr,Stmt,FunctionStmt};
@@ -23,34 +23,66 @@ pub enum OperationType {
     Leq,
     Greater,
     Geq,
-    EqualEqual,
 }
 
 pub trait Callable {
     fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange>;
     fn arity(&self) -> u8;
+    fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
+        None
+    }
 }
 
-#[derive(Clone)]
-pub struct CallableObject(Rc<dyn Callable>);
+impl Trace for dyn Callable {
+    fn trace(&self, tracer: &mut Tracer) {
+        if let Some(env) = self.get_closure() {
+            env.trace(tracer)
+        }
+    }
+}
+
+pub struct BoxValues(pub Box<dyn Callable>);
+
+impl Trace for BoxValues {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.0.trace(tracer)
+    }
+}
+
+impl std::ops::Deref for BoxValues {
+    type Target = Box<dyn Callable>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Clone, Trace)]
+pub struct CallableObject(Cc<BoxValues>);
 
 impl CallableObject {
-    pub fn new(arg: Rc<dyn Callable>) -> Self {
+    pub fn new(arg: Cc<BoxValues>) -> Self {
         Self(arg)
     }
+}
 
-    pub fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange> {
+impl Callable for CallableObject {
+    fn call(&self, interpreter: &mut Interpreter, args: &Vec<Object>) -> Result<Option<Object>,StateChange> {
         self.0.call(interpreter, args)
     }
 
-    pub fn arity(&self) -> u8 {
+    fn arity(&self) -> u8 {
         self.0.arity()
+    }
+
+    fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
+        self.0.get_closure()
     }
 }
 
 impl PartialEq for CallableObject {
     fn eq(&self, other: &Self) -> bool {
-        Rc::as_ptr(&self.0) == Rc::as_ptr(&other.0)
+        false
+        //*self.0.as_ref() == *other.0.as_ref()
     }
 }
 
@@ -162,8 +194,16 @@ impl fmt::Display for Object {
     }
 }
 
+impl Trace for Object {
+    fn trace(&self, tracer: &mut Tracer) {
+        match self {
+            Object::Callable(callable) => callable.trace(tracer), 
+            _ => {},
+        }
+    }
+}
 
-pub type EnvironmentScope = Rc<RefCell<HashMap<String, Object>>>;
+pub type EnvironmentScope = Cc<RefCell<HashMap<String, Object>>>;
 
 #[derive(Debug)]
 pub struct Environment {
@@ -173,7 +213,7 @@ pub struct Environment {
 impl Environment {
     pub fn new() -> Self {
         Self {
-            values: vec![Rc::new(RefCell::new(HashMap::new()))]
+            values: vec![Cc::new(RefCell::new(HashMap::new()))]
         }
     }
 
@@ -205,22 +245,23 @@ impl Environment {
     }
 
     pub fn push(&mut self) {
-        self.values.push(Rc::new(RefCell::new(HashMap::new())));
+        self.values.push(Cc::new(RefCell::new(HashMap::new())));
     }
     
     pub fn push_foreign(&mut self, scope: EnvironmentScope) {
         self.values.push(scope)
     }
 
-    pub fn pop(&mut self) -> Option<Rc<RefCell<HashMap<String, Object>>>> {
+    pub fn pop(&mut self) -> Option<EnvironmentScope> {
         if self.values.len() > 1 {
-            self.values.pop()
+            let ret = self.values.pop();
+            ret
         } else {
             None
         }
     }
 
-    pub fn globals(&mut self) -> Rc<RefCell<HashMap<String, Object>>> {
+    pub fn globals(&mut self) -> EnvironmentScope {
         self.values.iter().next().unwrap().clone()
     }
 }
@@ -313,9 +354,9 @@ impl Interpreter {
         Ok(None)
     }
 
-    fn exec_fun(&mut self, fun: Rc<FunctionStmt>) -> Result<Option<Object>,StateChange> {
+    fn exec_fun(&mut self, fun: Cc<FunctionStmt>) -> Result<Option<Object>,StateChange> {
         let function = Function::new(fun.clone(), self.env.get_current());
-        self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Rc::new(function))));
+        self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Cc::new(BoxValues(Box::new(function))))));
         Ok(None)
     }
 
@@ -340,6 +381,7 @@ impl Interpreter {
             last_val = self.execute(stmt)?;
         }
         self.env.pop().unwrap();
+        collect_thread_cycles(); //TODO: should i collect this shit here?
         Ok(last_val)
     }
 

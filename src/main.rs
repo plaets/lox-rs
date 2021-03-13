@@ -1,9 +1,9 @@
 use std::io::prelude::*;
 use std::io::{stdin, stdout, stderr};
-use std::rc::Rc;
 use std::env;
 use std::fs::File;
 use std::path::Path;
+use gcmodule::Cc;
 
 mod lexer;
 use lexer::*;
@@ -45,7 +45,7 @@ fn run(data: &str, interpreter: &mut Interpreter) -> Result<Option<Object>,IntEr
 
 fn get_default_interpreter() -> Interpreter {
     let mut interpreter = Interpreter::new();
-    interpreter.get_env().define("clock".to_owned(), interpreter::Object::Callable(interpreter::CallableObject::new(Rc::new(native::Clock{}))));
+    interpreter.get_env().define("clock".to_owned(), interpreter::Object::Callable(interpreter::CallableObject::new(Cc::new(BoxValues(Box::new(native::Clock{}))))));
     interpreter
 }
 
