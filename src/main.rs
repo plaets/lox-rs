@@ -12,9 +12,11 @@ mod parser;
 use parser::*;
 mod interpreter;
 use interpreter::*;
-mod native;
 mod object;
 use object::{Object,BoxValues,CallableObject};
+mod resolver;
+use resolver::*;
+mod native;
 mod ast;
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ use crate::interpreter::*;
 use crate::ast::FunctionStmt;
 
 #[derive(Clone, Debug, PartialEq, EnumDiscriminants)]
+#[non_exhaustive]
 pub enum Object {
     Nil,
     Bool(bool),

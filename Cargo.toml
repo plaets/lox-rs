@@ -11,4 +11,5 @@ enum-utils = "0.1.2"
 strum = "0.20"
 strum_macros = "0.20"
 gcmodule = { version = "0.3" }#, features = ["debug"] }
+newtype-enum = "0.1"
 #bacon_rajan_cc = "0.3"

@@ -1,3 +1,4 @@
+use newtype_enum::Enum;
 use crate::ast::*;
 use crate::lexer::*;
 use crate::parser::*;
@@ -12,8 +13,8 @@ fn parse(data: &str) -> Result<Vec<Stmt>,ParseError> {
 fn get_first_expr(v: &Result<Vec<Stmt>,ParseError>) -> Expr {
     let v = v.as_ref().unwrap();
     assert_eq!(v.len(), 1);
-    if let Stmt::Expr(expr) = &v[0] {
-        expr.clone()
+    if let Stmt::ExprStmt(expr) = &v[0] {
+        expr.expr.clone()
     } else {
         panic!("not an expression")
     }

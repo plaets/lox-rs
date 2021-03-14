@@ -1,6 +1,7 @@
 use std::fmt;
 use gcmodule::{Cc,Trace,Tracer};
 use strum_macros::EnumDiscriminants;
+use newtype_enum::newtype_enum;
 
 //is this enum necessary
 #[enumeration(rename_all = "snake_case")]
@@ -85,95 +86,97 @@ impl fmt::Display for Token {
 }
 
 #[derive(Debug,Clone)]
-pub struct FunctionStmt(pub Box<Token>, pub Vec<Token>, pub Vec<Stmt>);     //name, args, body
+pub struct FunctionStmt(pub Box<Token>, pub Vec<Token>, pub StmtVar::Block);     //name, args, body
 
 impl Trace for FunctionStmt {
     fn trace(&self, _tracer: &mut Tracer) { }
 }
 
+#[newtype_enum(variants = "pub StmtVar")]
 #[derive(Debug,Clone)]
 pub enum Stmt {
-    Expr(Expr),
-    If(Expr, Box<Stmt>, Option<Box<Stmt>>),    //cond, then, else
-    Print(Expr),
-    Return(Box<Token>, Option<Expr>), 
-    While(Expr, Box<Stmt>),                    //cond, body
-    Var(Box<Token>, Option<Expr>),                  //name, init
+    ExprStmt { expr: Expr },
+    If { cond: Expr, then: Box<Stmt>, else_b: Option<Box<Stmt>> },
+    Print { expr: Expr },
+    Return { keyword: Box<Token>, value: Option<Expr> }, 
+    While { cond: Expr, body: Box<Stmt> },
+    Var { name: Box<Token>, init: Option<Expr> },
     //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
-    Fun(Cc<FunctionStmt>),
+    Fun { stmt: Cc<FunctionStmt> },
     //having tokens here is pretty cool as it allows better error handling 
-    Block(Box<Token>, Vec<Stmt>),
+    Block { left_brace: Box<Token>, body: Vec<Stmt> },
 }
 
 impl Stmt {
     pub fn get_token(&self) -> Token {
         match self {
-            Stmt::Expr(expr) => expr.get_token(),
-            Stmt::If(expr, _, _) => expr.get_token(),
-            Stmt::Print(expr) => expr.get_token(),
-            Stmt::Return(token, _) => *(token.clone()),
-            Stmt::While(expr, _) => expr.get_token(),
-            Stmt::Var(token, _) => *(token.clone()),
-            Stmt::Fun(fun_stmt) => *(fun_stmt.0.clone()),
-            Stmt::Block(token, _) => *(token.clone()),
+            Stmt::ExprStmt(StmtVar::ExprStmt{expr}) => expr.get_token(),
+            Stmt::If(StmtVar::If{cond, ..}) => cond.get_token(),
+            Stmt::Print(StmtVar::Print{expr}) => expr.get_token(),
+            Stmt::Return(StmtVar::Return{keyword, ..}) => *(keyword.clone()),
+            Stmt::While(StmtVar::While{cond, ..}) => cond.get_token(),
+            Stmt::Var(StmtVar::Var{name, ..}) => *(name.clone()),
+            Stmt::Fun(StmtVar::Fun{stmt, ..}) => *(stmt.0.clone()),
+            Stmt::Block(StmtVar::Block{left_brace, ..}) => *(left_brace.clone()),
         }
     }
 
     #[cfg(test)]
     pub fn stringify_tree(&self) -> String {
         "(".to_string() + &match self {
-            Stmt::Expr(expr) => return expr.stringify_tree(),
-            Stmt::If(expr, then, else_b) => format!("if {} {}", expr.stringify_tree(), then.stringify_tree()) + 
+            Stmt::ExprStmt(StmtVar::ExprStmt{expr}) => return expr.stringify_tree(),
+            Stmt::If(StmtVar::If{cond, then, else_b}) => format!("if {} {}", cond.stringify_tree(), then.stringify_tree()) + 
                                             &else_b.as_ref().map_or("".to_string(), |v| " ".to_string() + &v.stringify_tree()),
-            Stmt::Print(expr) => format!("print {}", expr.stringify_tree()),
-            Stmt::Return(_, expr) => format!("return {}", expr.as_ref().map_or("".to_string(), |v| v.stringify_tree())),
-            Stmt::While(expr, body) => format!("while {} {}", expr.stringify_tree(), body.stringify_tree()),
-            Stmt::Var(name, init) => format!("var {} {}", name.lexeme.clone(), init.as_ref().map_or("".to_string(), |v| v.stringify_tree())),
-            Stmt::Fun(f) => format!("fun {} {:?} {:?}", f.0.lexeme.clone(), 
-                                    f.1.iter().map(|v| v.lexeme.clone()).collect::<Vec<_>>(), 
-                                    format!("[{}]", f.2.iter().fold(String::new(), |t, v| t + &v.stringify_tree()))),
-            Stmt::Block(_, stmts) => return format!("[{}]", stmts.iter().fold(String::new(), |t, v| t + &v.stringify_tree())),
+            Stmt::Print(StmtVar::Print{expr}) => format!("print {}", expr.stringify_tree()),
+            Stmt::Return(StmtVar::Return{value, ..}) => format!("return {}", value.as_ref().map_or("".to_string(), |v| v.stringify_tree())),
+            Stmt::While(StmtVar::While{cond, body}) => format!("while {} {}", cond.stringify_tree(), body.stringify_tree()),
+            Stmt::Var(StmtVar::Var{name, init}) => format!("var {} {}", name.lexeme.clone(), init.as_ref().map_or("".to_string(), |v| v.stringify_tree())),
+            Stmt::Fun(StmtVar::Fun{stmt}) => format!("fun {} {:?} {:?}", stmt.0.lexeme.clone(), 
+                                    stmt.1.iter().map(|v| v.lexeme.clone()).collect::<Vec<_>>(), 
+                                    format!("[{}]", stmt.2.body.iter().fold(String::new(), |t, v| t + &v.stringify_tree()))),
+            Stmt::Block(StmtVar::Block{body, ..}) => return format!("[{}]", body.iter().fold(String::new(), |t, v| t + &v.stringify_tree())),
         }.to_string() + ")"
     }
 }
 
+#[newtype_enum(variants = "pub ExprVar")]
 #[derive(Debug,Clone)]
 pub enum Expr {
-    Assign(Box<Token>, Box<Expr>),                  //name, value
-    Logical(Box<Expr>, Box<Keyword>, Box<Expr>),    //left, op (or/and), right
-    Binary(Box<Expr>, Box<Token>, Box<Expr>),       //left, op, right
-    Call(Box<Expr>, Box<Token>, Vec<Expr>),         //callable, left paren, args
-    Unary(Box<Token>, Box<Expr>),                   //op, right
-    Literal(Box<Token>),
-    Variable(Box<Token>),                           //name
-    Grouping(Box<Expr>),
+    Assign { name: Box<Token>, expr: Box<Expr> },
+    Logical { left: Box<Expr>, op: Box<Keyword>, right: Box<Expr> },
+    Binary { left: Box<Expr>, op: Box<Token>, right: Box<Expr> },
+    Call { callee: Box<Expr>, left_paren: Box<Token>, args: Vec<Expr> },
+    Unary { op: Box<Token>, expr: Box<Expr> },
+    Literal { token: Box<Token> },
+    Variable { name: Box<Token> },
+    Grouping { expr: Box<Expr> },
 }
 
 impl Expr {
     pub fn get_token(&self) -> Token {
         match self {
-            Expr::Assign(token, _) => *(token.clone()),
-            Expr::Logical(expr, _, _) => expr.get_token(),
-            Expr::Binary(_, op, _) => *(op.clone()),
-            Expr::Call(_, paren, _) => *(paren.clone()),
-            Expr::Unary(op, _) => *(op.clone()),
-            Expr::Literal(token) => *(token.clone()),
-            Expr::Variable(token) => *(token.clone()),
-            Expr::Grouping(expr) => expr.get_token(),
+            Expr::Assign(ExprVar::Assign{name, ..}) => *(name.clone()),
+            Expr::Logical(ExprVar::Logical{left, ..}) => left.get_token(),
+            Expr::Binary(ExprVar::Binary{op, ..}) => *(op.clone()),
+            Expr::Call(ExprVar::Call{left_paren, ..}) => *(left_paren.clone()),
+            Expr::Unary(ExprVar::Unary{op, ..}) => *(op.clone()),
+            Expr::Literal(ExprVar::Literal{token, ..}) => *(token.clone()),
+            Expr::Variable(ExprVar::Variable{name, ..}) => *(name.clone()),
+            Expr::Grouping(ExprVar::Grouping{expr, ..}) => expr.get_token(),
         }
     }
 
     #[cfg(test)]
     pub fn stringify_tree(&self) -> String {
         "(".to_string() + &match self {
-            Expr::Assign(name, value) => format!("= {} {}", name.lexeme, value.stringify_tree()),
-            Expr::Logical(left, op, right) => format!("{:?} {} {}", op, left.stringify_tree(), right.stringify_tree()),
-            Expr::Binary(left, op, right) => format!("{} {} {}", op.lexeme, left.stringify_tree(), right.stringify_tree()),
-            Expr::Call(callable, _paren, args) => format!("{} {:?}", callable.stringify_tree(), args),
-            Expr::Unary(op, val) => format!("{} {}", op, val.stringify_tree()),
-            Expr::Literal(token) => return token.lexeme.clone(),
-            Expr::Variable(token) => token.lexeme.clone(),
-            Expr::Grouping(expr) => expr.stringify_tree(),
+            Expr::Assign(ExprVar::Assign{name, expr}) => format!("= {} {}", name.lexeme, expr.stringify_tree()),
+            Expr::Logical(ExprVar::Logical{left, op, right}) => format!("{:?} {} {}", op, left.stringify_tree(), right.stringify_tree()),
+            Expr::Binary(ExprVar::Binary{left, op, right}) => format!("{} {} {}", op.lexeme, left.stringify_tree(), right.stringify_tree()),
+            Expr::Call(ExprVar::Call{callee, args, ..}) => format!("{} {:?}", callee.stringify_tree(), args),
+            Expr::Unary(ExprVar::Unary{op, expr}) => format!("{} {}", op, expr.stringify_tree()),
+            Expr::Literal(ExprVar::Literal{token}) => return token.lexeme.clone(),
+            Expr::Variable(ExprVar::Variable{name}) => name.lexeme.clone(),
+            Expr::Grouping(ExprVar::Grouping{expr}) => expr.stringify_tree(),
         }.to_string() + ")"
     }
 }

@@ -1,4 +1,5 @@
 use gcmodule::Cc;
+use newtype_enum::Enum;
 use crate::ast::*;
 
 pub struct Parser {
@@ -15,7 +16,7 @@ macro_rules! binary {
             while self.match_tokens($tokens.into_iter().map(TokenTypeDiscriminants::from).collect()) {
                 let op = self.previous();
                 let right = self.$next()?;
-                expr = Expr::Binary(Box::new(expr), Box::new(op), Box::new(right));
+                expr = Expr::from_variant(ExprVar::Binary{left: Box::new(expr), op: Box::new(op), right: Box::new(right)});
             }
 
             Ok(expr)
@@ -66,7 +67,7 @@ impl Parser {
             init = Some(self.expression()?);
         }
         self.consume(TokenTypeDiscriminants::Semicolon, None)?;
-        Ok(Stmt::Var(Box::new(name), init))
+        Ok(Stmt::from_variant(StmtVar::Var{name: Box::new(name), init}))
     }
 
     //this could return FunctionStmt i guess... sorta inconsistent
@@ -90,8 +91,8 @@ impl Parser {
 
         self.consume(TokenTypeDiscriminants::RightParen, Some(ParseErrorReason::ExpectedFunctionParameterOrRightParen))?;
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
-        if let Stmt::Block(_, block) = self.block()? {
-            Ok(Stmt::Fun(Cc::new(FunctionStmt(Box::new(name), parameters, block))))
+        if let Stmt::Block(block) = self.block()? {
+            Ok(Stmt::from_variant(StmtVar::Fun{ stmt: Cc::new(FunctionStmt(Box::new(name), parameters, block)) }))
         } else {
             Err(ParseError(self.peek(), ParseErrorReason::Other("internal error: expected a block".to_owned())))
         }
@@ -123,12 +124,12 @@ impl Parser {
             stmts.push(self.declaration()?);
         }
         self.consume(TokenTypeDiscriminants::RightBrace, None)?;
-        Ok(Stmt::Block(Box::new(start), stmts))
+        Ok(Stmt::from_variant(StmtVar::Block{ left_brace: Box::new(start), body: stmts }))
     }
 
     fn if_statement(&mut self) -> Result<Stmt,ParseError> {
         self.consume(TokenTypeDiscriminants::LeftParen, None)?;
-        let condition = self.expression()?;
+        let cond = self.expression()?;
         self.consume(TokenTypeDiscriminants::RightParen, None)?;
 
         let then_branch = self.statement()?;
@@ -137,7 +138,7 @@ impl Parser {
             else_branch = Some(self.statement()?);
         }
 
-        Ok(Stmt::If(condition, Box::new(then_branch), else_branch.map(Box::new)))
+        Ok(Stmt::from_variant(StmtVar::If { cond, then: Box::new(then_branch), else_b: else_branch.map(Box::new) }))
     }
 
     fn for_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -168,25 +169,34 @@ impl Parser {
         let mut body = self.statement()?;
 
         if let Some(inc) = inc {
-            body = Stmt::Block(start.clone(), vec![
-                body,
-                Stmt::Expr(inc),
-            ]);
+            body = Stmt::from_variant(StmtVar::Block{ 
+                left_brace: start.clone(), 
+                body: vec![
+                    body,
+                    Stmt::from_variant(StmtVar::ExprStmt{ expr: inc }),
+                ]
+            });
         }
 
         if let Some(cond) = cond {
-            body = Stmt::While(cond, Box::new(body));
+            body = Stmt::from_variant(StmtVar::While{ cond, body: Box::new(body) });
         } else {
-            body = Stmt::While(Expr::Literal(
-                        Box::new(Token::new(TokenType::Keyword(Keyword::True), "true".to_string(), 0))
-                    ), Box::new(body));
+            body = Stmt::from_variant(StmtVar::While{ 
+                cond: Expr::from_variant(ExprVar::Literal {
+                        token: Box::new(Token::new(TokenType::Keyword(Keyword::True), "true".to_string(), 0))
+                }), 
+                body: Box::new(body),
+            });
         }
 
         if let Some(init) = init {
-            body = Stmt::Block(start, vec![
-                init,
-                body,
-            ])
+            body = Stmt::from_variant(StmtVar::Block {
+                left_brace: start, 
+                body: vec![
+                    init,
+                    body,
+                ],
+            })
         }
 
         Ok(body)
@@ -195,7 +205,7 @@ impl Parser {
     fn print_statement(&mut self) -> Result<Stmt,ParseError> {
         let expr = self.expression()?;
         self.consume(TokenTypeDiscriminants::Semicolon, None)?;
-        Ok(Stmt::Print(expr))
+        Ok(Stmt::from_variant(StmtVar::Print{ expr }))
     }
 
     fn return_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -206,7 +216,7 @@ impl Parser {
             value = Some(self.expression()?);
         }
         self.consume(TokenTypeDiscriminants::Semicolon, None)?;
-        Ok(Stmt::Return(Box::new(keyword), value))
+        Ok(Stmt::from_variant(StmtVar::Return{ keyword: Box::new(keyword), value }))
     }
 
     fn while_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -214,13 +224,13 @@ impl Parser {
         let cond = self.expression()?;
         self.consume(TokenTypeDiscriminants::RightParen, None)?;
         let body = self.statement()?;
-        Ok(Stmt::While(cond, Box::new(body)))
+        Ok(Stmt::from_variant(StmtVar::While{ cond, body: Box::new(body) }))
     }
 
     fn expr_statement(&mut self) -> Result<Stmt,ParseError> {
         let value = self.expression()?;
         self.consume(TokenTypeDiscriminants::Semicolon, None)?;
-        Ok(Stmt::Expr(value))
+        Ok(Stmt::from_variant(StmtVar::ExprStmt{ expr: value }))
     }
 
     fn expression(&mut self) -> Result<Expr,ParseError> {
@@ -232,8 +242,8 @@ impl Parser {
         if self.match_tokens(vec![TokenTypeDiscriminants::Equal]) {
             let equals = self.previous();
             let value = self.assignment()?;
-            if let Expr::Variable(name) = expr {
-                Ok(Expr::Assign(name, Box::new(value)))
+            if let Expr::Variable(ExprVar::Variable{ name }) = expr {
+                Ok(Expr::from_variant(ExprVar::Assign{name, expr: Box::new(value)}))
             } else {
                 Err(ParseError(equals, ParseErrorReason::InvalidAssignmentTarget))
             }
@@ -247,7 +257,7 @@ impl Parser {
         if self.match_keyword(Keyword::Or) {
             let _op = self.previous(); //should always be or
             let right = self.and()?;
-            Ok(Expr::Logical(Box::new(expr), Box::new(Keyword::Or), Box::new(right)))
+            Ok(Expr::from_variant(ExprVar::Logical{left: Box::new(expr), op: Box::new(Keyword::Or), right: Box::new(right)}))
         } else {
             Ok(expr)
         }
@@ -258,7 +268,7 @@ impl Parser {
         if self.match_keyword(Keyword::And) {
             let _op = self.previous(); //should always be and
             let right = self.equality()?;
-            Ok(Expr::Logical(Box::new(expr), Box::new(Keyword::And), Box::new(right)))
+            Ok(Expr::from_variant(ExprVar::Logical{left: Box::new(expr), op: Box::new(Keyword::And), right: Box::new(right)}))
         } else {
             Ok(expr)
         }
@@ -273,7 +283,7 @@ impl Parser {
         if self.match_tokens(vec![TokenTypeDiscriminants::Bang, TokenTypeDiscriminants::Minus]) {
             let op = self.previous();
             let right = self.unary()?;
-            return Ok(Expr::Unary(Box::new(op), Box::new(right)));
+            return Ok(Expr::from_variant(ExprVar::Unary{op: Box::new(op), expr: Box::new(right)}));
         }
 
         self.call()
@@ -303,7 +313,7 @@ impl Parser {
             }
         }
         let paren = self.consume(TokenTypeDiscriminants::RightParen, None)?;
-        Ok(Expr::Call(Box::new(callee), Box::new(paren), args))
+        Ok(Expr::from_variant(ExprVar::Call{callee: Box::new(callee), left_paren: Box::new(paren), args}))
     }
 
     fn primary(&mut self) -> Result<Expr,ParseError> {
@@ -312,7 +322,8 @@ impl Parser {
             let token_type = token.token_type.clone();
             if let TokenType::Keyword(id) = token_type {
                 match id {
-                    Keyword::False | Keyword::True | Keyword::Nil => return Ok(Expr::Literal(Box::new(token))),
+                    Keyword::False | Keyword::True | Keyword::Nil => 
+                        return Ok(Expr::from_variant(ExprVar::Literal{token: Box::new(token)})),
                     _ => ()
                 }
             } else {
@@ -321,17 +332,17 @@ impl Parser {
         }
 
         if self.match_tokens(vec![TokenTypeDiscriminants::Number, TokenTypeDiscriminants::String]) {
-            return Ok(Expr::Literal(Box::new(self.previous())))
+            return Ok(Expr::from_variant(ExprVar::Literal{token: Box::new(self.previous())}))
         }
 
         if self.match_tokens(vec![TokenTypeDiscriminants::Identifier]) {
-            return Ok(Expr::Variable(Box::new(self.previous())))
+            return Ok(Expr::from_variant(ExprVar::Variable{name: Box::new(self.previous())}))
         }
 
         if self.match_tokens(vec![TokenTypeDiscriminants::LeftParen]) {
             let expr = self.expression()?;
             self.consume(TokenTypeDiscriminants::RightParen, None)?;
-            return Ok(Expr::Grouping(Box::new(expr)))
+            return Ok(Expr::from_variant(ExprVar::Grouping{expr: Box::new(expr)}))
         }
 
         Err(ParseError(self.peek(), ParseErrorReason::ExpectedExpr))
