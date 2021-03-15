@@ -4,6 +4,8 @@ use std::env;
 use std::fs::File;
 use std::path::Path;
 use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::cell::RefCell;
 use gcmodule::Cc;
 
 mod lexer;
@@ -22,37 +24,49 @@ mod ast;
 #[cfg(test)]
 mod tests;
 
-fn run(data: &str, interpreter: &mut Interpreter) -> Result<Option<Object>,IntErr> {
+fn run(data: &str, globals: EnvironmentScope) -> Result<Option<Object>,IntErr> {
     let mut scanner = Scanner::new(data.to_string());
     let tokens = scanner.scan_tokens();
     if let Ok(_tokens) = tokens {
         let mut parser = Parser::new(scanner.tokens.clone());
-        let tree = parser.parse();
-        match tree {
-            Ok(t) => {
-                return interpreter.interpret(&t);
-            },
-            Err(e) => println!("parse error: {:#?}", e),
+        let (tree, errors) = parser.parse();
+        if errors.is_empty() {
+            let mut resolver = Resolver::new();
+            let (locals_map, errors) = resolver.resolve(&tree);
+            if errors.is_empty() {
+                let mut interpreter = Interpreter::new(locals_map);
+                interpreter.get_env().set_globals(globals);
+                interpreter.interpret(&tree)
+            } else {
+                for e in errors.iter() {
+                    println!("resolver error: {:?}", e);
+                }
+                Ok(None)
+            }
+        } else {
+            for e in errors.iter() {
+                println!("parser error: {:?}", e);
+            }
+            Ok(None)
         }
-        Ok(None)
     } else {
         println!("scanner error: {:#?}", tokens);
         Ok(None)
     }
 }
 
-fn get_default_interpreter() -> Interpreter {
-    let mut interpreter = Interpreter::new();
-    interpreter.get_env().define("clock".to_owned(), Object::Callable(CallableObject::new(Cc::new(BoxValues(Box::new(native::Clock{}))))));
-    interpreter
+fn get_default_env() -> EnvironmentScope {
+    let env = Cc::new(RefCell::new(HashMap::new()));
+    (*env).borrow_mut().insert("clock".to_owned(), Object::Callable(CallableObject::new(Cc::new(BoxValues(Box::new(native::Clock{}))))));
+    env
 }
 
 fn run_file(path: &str) -> Result<(), std::io::Error> {
-    let mut interpreter = get_default_interpreter();
+    let env = get_default_env();
     let mut file = File::open(Path::new(path))?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
-    let res = run(&contents, &mut interpreter);
+    let res = run(&contents, env);
     if let Err(r) = res {
         println!("{:?}", r);
     } 
@@ -60,13 +74,13 @@ fn run_file(path: &str) -> Result<(), std::io::Error> {
 }
 
 fn run_prompt() -> Result<(), std::io::Error> {
-    let mut interpreter = get_default_interpreter();
+    let env = get_default_env();
     loop {
         print!("> ");
         stdout().flush()?;
         let mut line = String::new();
         stdin().read_line(&mut line)?;
-        let res = run(&line, &mut interpreter);
+        let res = run(&line, env.clone());
         if let Err(r) = res {
             println!("{:?}", r);
         } else if let Ok(Some(r)) = res {

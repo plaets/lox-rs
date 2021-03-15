@@ -1,0 +1,10 @@
+var a = "zxc";
+
+fun bad() {
+    var a = "asd";
+    var a = "sdf";
+}
+
+//this is valid apparently?
+var c = "a";
+var c = "a";

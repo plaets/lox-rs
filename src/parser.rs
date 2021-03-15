@@ -1,10 +1,9 @@
-use gcmodule::Cc;
 use newtype_enum::Enum;
 use crate::ast::*;
 
 pub struct Parser {
     tokens: Vec<Token>,
-    non_critical_erros: Vec<ParseError>,
+    non_critical_errors: Vec<ParseError>,
     pos: usize,
 }
 
@@ -37,17 +36,25 @@ impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         Self {
             tokens,
-            non_critical_erros: Vec::new(),
+            non_critical_errors: Vec::new(),
             pos: 0
         }
     }
 
-    pub fn parse(&mut self) -> Result<Vec<Stmt>,ParseError> {
+    pub fn parse(&mut self) -> (Vec<Stmt>,Vec<ParseError>) { //maybe the first part should be an option? or a complete/incomplete enum
         let mut statements: Vec<Stmt> = Vec::new();
         while !self.is_at_end() {
-            statements.push(self.declaration()?);
+            let decl = self.declaration();
+            match decl {
+                Ok(decl) => statements.push(decl),
+                Err(err) => {
+                    let mut errors = vec![err];
+                    errors.append(&mut self.non_critical_errors);
+                    return (statements, errors)
+                }
+            }
         }
-        Ok(statements)
+        (statements, self.non_critical_errors.drain(0..).collect::<Vec<_>>())
     }
 
     fn declaration(&mut self) -> Result<Stmt,ParseError> {
@@ -79,7 +86,7 @@ impl Parser {
         while let TokenType::Identifier(_) = self.peek().token_type {
             parameters.push(self.peek().clone());
             if parameters.len() == 255 {
-                self.non_critical_erros.push(ParseError(self.peek().clone(), ParseErrorReason::TooManyArguments))
+                self.non_critical_errors.push(ParseError(self.peek().clone(), ParseErrorReason::TooManyArguments))
             }
             self.advance();
             if self.peek().token_type != TokenType::Comma {
@@ -92,7 +99,7 @@ impl Parser {
         self.consume(TokenTypeDiscriminants::RightParen, Some(ParseErrorReason::ExpectedFunctionParameterOrRightParen))?;
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
         if let Stmt::Block(block) = self.block()? {
-            Ok(Stmt::from_variant(StmtVar::Fun{ stmt: Cc::new(FunctionStmt(Box::new(name), parameters, block)) }))
+            Ok(Stmt::from_variant(StmtVar::Fun{ stmt: CcFunctionStmt::new(FunctionStmt(Box::new(name), parameters, block)) }))
         } else {
             Err(ParseError(self.peek(), ParseErrorReason::Other("internal error: expected a block".to_owned())))
         }
@@ -307,7 +314,7 @@ impl Parser {
             args.push(self.expression()?);
             while self.match_tokens(vec![TokenTypeDiscriminants::Comma]) {
                 if args.len() == 255 {
-                    self.non_critical_erros.push(ParseError(self.peek().clone(), ParseErrorReason::TooManyArguments))
+                    self.non_critical_errors.push(ParseError(self.peek().clone(), ParseErrorReason::TooManyArguments))
                 }
                 args.push(self.expression()?);
             }

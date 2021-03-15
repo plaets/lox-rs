@@ -2,8 +2,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::swap;
 use gcmodule::{Cc,collect_thread_cycles};
+use newtype_enum::Enum;
 use crate::ast::*;
 use crate::object::*;
+use crate::resolver::LocalsMap;
 
 //so i been thinking... do i need garbage collection or does rc handle all i need to do
 //update: check the examples for an answer
@@ -60,8 +62,20 @@ impl Environment {
         }
     }
 
+    pub fn assign_at(&mut self, name: String, val: Object, distance: usize) -> Option<Object> {
+        if let Some(env) = self.values.iter_mut().rev().nth(distance) {
+            env.borrow_mut().insert(name, val) //dumb
+        } else {
+            None
+        }
+    }
+
     pub fn get(&self, name: &str) -> Option<Object> {
         self.values.iter().rev().find_map(|e| e.borrow().get(name).cloned())
+    }
+
+    pub fn get_at(&self, name: &str, at: usize) -> Option<Object> {
+        self.values.iter().rev().nth(at).map_or(None, |e| e.borrow().get(name).cloned()) //does this actually work
     }
 
     pub fn push(&mut self) {
@@ -81,6 +95,10 @@ impl Environment {
         }
     }
 
+    pub fn set_globals(&mut self, globals: EnvironmentScope) {
+        self.values[0] = globals;
+    }
+
     #[allow(unused)]
     pub fn globals(&mut self) -> EnvironmentScope {
         self.values.get(0).unwrap().clone()
@@ -89,6 +107,7 @@ impl Environment {
 
 pub struct Interpreter {
     env: Environment,
+    locals_map: LocalsMap,
 }
 
 macro_rules! map_int_err {
@@ -109,9 +128,10 @@ macro_rules! int_to_st {
 
 
 impl Interpreter {
-    pub fn new() -> Self {
+    pub fn new(locals_map: LocalsMap) -> Self {
         Self { 
             env: Environment::new(),
+            locals_map,
         }
     }
 
@@ -121,7 +141,8 @@ impl Interpreter {
             let exec_res = self.execute(&stmt);
             res = match exec_res {
                 Ok(val) => Ok(val),
-                Err(StateChange::Return(_)) => Err(IntErr(stmt.get_token(), ErrReason::ReturnOutsideOfFunction)),
+                Err(StateChange::Return(_)) => Err(IntErr(stmt.get_token(), 
+                                  ErrReason::Critical(CriticalErrorReason::ReturnOutsideOfFunction))),
                 Err(StateChange::ErrReason(reason)) => Err(IntErr(stmt.get_token(), reason)),
                 Err(StateChange::Err(err)) => Err(err),
             }?;
@@ -250,7 +271,9 @@ impl Interpreter {
                 _ => Err(int_err!(token.clone(), ErrReason::NotALiteral)),
             },
             TokenType::String(obj) => Ok(Object::String(obj.clone())),
-            TokenType::Number(obj) => Ok(Object::Number(*obj)),
+            TokenType::Number(obj) => Ok(Object::Number(
+                obj.parse::<f64>().expect("valid number"),
+            )),
             _ => Err(int_err!(token.clone(), ErrReason::NotALiteral)),
         }
     }
@@ -316,18 +339,35 @@ impl Interpreter {
     }
 
     fn evaluate_variable(&mut self, expr: &ExprVar::Variable) -> Result<Object,IntErr> {
-        self.env.get(&expr.name.lexeme).map_or(
-            Err(int_err!(*expr.name.clone(), ErrReason::UndefinedVariable)),
-            Ok,
-        )
+        if let Some(distance) = self.locals_map.0.get(&Expr::from_variant(expr.clone())) {       //yeah this probably changes the hash
+            
+            self.env.get_at(&*expr.name.lexeme, *distance).map_or(
+                Err(int_err!(*expr.name.clone(), ErrReason::Critical(CriticalErrorReason::LocalVariableNotFound))), //should never happen i think?
+                Ok,
+            )
+        } else {
+            self.env.globals().borrow().get(&*expr.name.lexeme).map_or(
+                Err(int_err!(*expr.name.clone(), ErrReason::UndefinedVariable)),
+                |v| Ok(v.clone()),
+            )
+        }
     }
 
     fn evaluate_assign(&mut self, expr: &ExprVar::Assign) -> Result<Object,IntErr> {
         let value = self.evaluate(&expr.expr)?;
-        if self.env.assign(expr.name.lexeme.clone(), value.clone()).is_some() {
-            Ok(value)
+       
+        if let Some(distance) = self.locals_map.0.get(&Expr::from_variant(expr.clone())) { //this probably too
+            if self.env.assign_at(expr.name.lexeme.clone(), value.clone(), *distance).is_some() {
+                Ok(value)
+            } else {
+                Err(int_err!(*expr.name.clone(), ErrReason::Critical(CriticalErrorReason::LocalVariableNotFound)))
+            }
         } else {
-            Err(int_err!(*expr.name.clone(), ErrReason::UndefinedVariable))
+            if self.env.assign(expr.name.lexeme.clone(), value.clone()).is_some() {
+                Ok(value)
+            } else {
+                Err(int_err!(*expr.name.clone(), ErrReason::UndefinedVariable))
+            }
         }
     }
 }
@@ -358,5 +398,12 @@ pub enum ErrReason {
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),
     ExpectedToken(TokenTypeDiscriminants),
+    Critical(CriticalErrorReason),
+}
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum CriticalErrorReason {
+    LocalVariableNotFound,
     ReturnOutsideOfFunction,
 }

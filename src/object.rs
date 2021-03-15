@@ -2,7 +2,7 @@ use std::fmt;
 use gcmodule::{Cc,Trace,Tracer};
 use strum_macros::EnumDiscriminants;
 use crate::interpreter::*;
-use crate::ast::FunctionStmt;
+use crate::ast::CcFunctionStmt;
 
 #[derive(Clone, Debug, PartialEq, EnumDiscriminants)]
 #[non_exhaustive]
@@ -186,12 +186,12 @@ impl fmt::Debug for CallableObject {
 
 #[derive(Trace)]
 pub struct Function {
-    declaration: Cc<FunctionStmt>,
+    declaration: CcFunctionStmt,
     closure: Vec<EnvironmentScope>,     //maybe env as a linked list was a good idea? im sure i will intrudce so many cool bugs by trying to use slices here
 }
 
 impl Function {
-    pub fn new(declaration: Cc<FunctionStmt>, closure: Vec<EnvironmentScope>) -> Self {
+    pub fn new(declaration: CcFunctionStmt, closure: Vec<EnvironmentScope>) -> Self {
         Self {
             declaration,
             closure,

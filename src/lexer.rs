@@ -157,9 +157,8 @@ impl Scanner {
         }
 
         let value = self.source_iter[self.start..self.current].iter().collect::<String>();
-        Ok(Some(self.make_token(TokenType::Number(value.parse::<f64>()
-                .map_err(|_| ScannerError(self.line, ScannerErrorReason::InvalidNumber))?
-        ))))
+        value.parse::<f64>().map_err(|_| ScannerError(self.line, ScannerErrorReason::InvalidNumber))?; //remember that comment from ast? yeah lol
+        Ok(Some(self.make_token(TokenType::Number(value))))
     }
 
     fn is_alpha(&self, c: char) -> bool {

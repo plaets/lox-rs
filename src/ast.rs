@@ -1,11 +1,12 @@
 use std::fmt;
+use std::hash::{Hash,Hasher};
 use gcmodule::{Cc,Trace,Tracer};
 use strum_macros::EnumDiscriminants;
 use newtype_enum::newtype_enum;
 
 //is this enum necessary
 #[enumeration(rename_all = "snake_case")]
-#[derive(Debug, Clone, PartialEq, enum_utils::FromStr)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, enum_utils::FromStr)]
 pub enum Keyword {
     And,
     Class,
@@ -25,7 +26,7 @@ pub enum Keyword {
     While,
 }
 
-#[derive(Debug, Clone, PartialEq, EnumDiscriminants)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, EnumDiscriminants)]
 pub enum TokenType {
     LeftParen,
     RightParen,
@@ -48,7 +49,7 @@ pub enum TokenType {
     Greater,
 
     String(String),             //TODO: how to handle invlaid variants like TokenType::String(Object::Number)?
-    Number(f64),
+    Number(String),             //f64 cant be hashed also this allows us to change object implementaion without touching ast
     Keyword(Keyword),
     Identifier(String),
 
@@ -56,10 +57,10 @@ pub enum TokenType {
     Eof,
 }
 
-#[derive(Clone,Debug)]
+#[derive(PartialEq,Eq,Clone,Debug,Hash)]
 pub struct Token {
     pub token_type: TokenType,
-    pub lexeme: String,
+    pub lexeme: String, //should i even use lexeme when im already storing strings in the enum variants?
     pub line: usize,
 }
 
@@ -85,15 +86,40 @@ impl fmt::Display for Token {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,Hash)]
 pub struct FunctionStmt(pub Box<Token>, pub Vec<Token>, pub StmtVar::Block);     //name, args, body
+
+#[derive(Debug,Clone,Trace)]
+pub struct CcFunctionStmt(Cc<FunctionStmt>);
+
+impl std::ops::Deref for CcFunctionStmt {
+    type Target = Cc<FunctionStmt>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+//im not sure if i actually have to implement this, i guess?? maybe???
+impl Hash for CcFunctionStmt {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+        self.1.hash(state);
+        self.2.hash(state);
+    }
+}
+
+impl CcFunctionStmt {
+    pub fn new(f: FunctionStmt) -> Self {
+        Self(Cc::new(f))
+    }
+}
 
 impl Trace for FunctionStmt {
     fn trace(&self, _tracer: &mut Tracer) { }
 }
 
 #[newtype_enum(variants = "pub StmtVar")]
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,Hash)]
 pub enum Stmt {
     ExprStmt { expr: Expr },
     If { cond: Expr, then: Box<Stmt>, else_b: Option<Box<Stmt>> },
@@ -102,7 +128,7 @@ pub enum Stmt {
     While { cond: Expr, body: Box<Stmt> },
     Var { name: Box<Token>, init: Option<Expr> },
     //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
-    Fun { stmt: Cc<FunctionStmt> },
+    Fun { stmt: CcFunctionStmt },
     //having tokens here is pretty cool as it allows better error handling 
     Block { left_brace: Box<Token>, body: Vec<Stmt> },
 }
@@ -116,7 +142,7 @@ impl Stmt {
             Stmt::Return(StmtVar::Return{keyword, ..}) => *(keyword.clone()),
             Stmt::While(StmtVar::While{cond, ..}) => cond.get_token(),
             Stmt::Var(StmtVar::Var{name, ..}) => *(name.clone()),
-            Stmt::Fun(StmtVar::Fun{stmt, ..}) => *(stmt.0.clone()),
+            Stmt::Fun(StmtVar::Fun{stmt, ..}) => *(stmt.0.0.clone()),
             Stmt::Block(StmtVar::Block{left_brace, ..}) => *(left_brace.clone()),
         }
     }
@@ -131,7 +157,7 @@ impl Stmt {
             Stmt::Return(StmtVar::Return{value, ..}) => format!("return {}", value.as_ref().map_or("".to_string(), |v| v.stringify_tree())),
             Stmt::While(StmtVar::While{cond, body}) => format!("while {} {}", cond.stringify_tree(), body.stringify_tree()),
             Stmt::Var(StmtVar::Var{name, init}) => format!("var {} {}", name.lexeme.clone(), init.as_ref().map_or("".to_string(), |v| v.stringify_tree())),
-            Stmt::Fun(StmtVar::Fun{stmt}) => format!("fun {} {:?} {:?}", stmt.0.lexeme.clone(), 
+            Stmt::Fun(StmtVar::Fun{stmt}) => format!("fun {} {:?} {:?}", stmt.0.0.lexeme.clone(), 
                                     stmt.1.iter().map(|v| v.lexeme.clone()).collect::<Vec<_>>(), 
                                     format!("[{}]", stmt.2.body.iter().fold(String::new(), |t, v| t + &v.stringify_tree()))),
             Stmt::Block(StmtVar::Block{body, ..}) => return format!("[{}]", body.iter().fold(String::new(), |t, v| t + &v.stringify_tree())),
@@ -140,7 +166,7 @@ impl Stmt {
 }
 
 #[newtype_enum(variants = "pub ExprVar")]
-#[derive(Debug,Clone)]
+#[derive(PartialEq,Eq,Debug,Clone,Hash)]
 pub enum Expr {
     Assign { name: Box<Token>, expr: Box<Expr> },
     Logical { left: Box<Expr>, op: Box<Keyword>, right: Box<Expr> },
