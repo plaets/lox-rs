@@ -11,8 +11,39 @@ enum FunctionType {
     Function,
 }
 
+#[derive(Clone, Debug)]
+struct VarData {
+    declaration: Token,
+    defined: bool,
+    used: bool,
+}
+
+impl VarData {
+    fn new(token: Token) -> Self {
+        Self {
+            declaration: token,
+            defined: false,
+            used: false,
+        }
+    }
+
+    fn defined(self, defined: bool) -> Self {
+        Self {
+            defined,
+            ..self
+        }
+    }
+
+    fn used(self, used: bool) -> Self {
+        Self {
+            used,
+            ..self
+        }
+    }
+}
+
 pub struct Resolver {
-    scopes: Vec<HashMap<String, bool>>,
+    scopes: Vec<HashMap<String, VarData>>,
     locals: HashMap<Expr,usize>,                //why does this compile and what bugs does this cause
     non_critical_errors: Vec<ResolverError>,
     current_function: FunctionType,
@@ -145,7 +176,7 @@ impl Resolver {
     fn resolve_variable(&mut self, expr: &ExprVar::Variable) -> Result<(),ResolverError> {
         if let Some(scope) = self.scopes.last() {
             let name = &expr.name.lexeme;
-            if scope.get(name).is_some() && !scope.get(name).unwrap() {
+            if scope.get(name).is_some() && !scope.get(name).unwrap().defined {
                 self.non_critical_errors.push(ResolverError::new((*expr.name).clone(),
                     ResolverErrorReason::CantReadInInit(name.to_string())))
             } 
@@ -178,8 +209,10 @@ impl Resolver {
     }
 
     fn resolve_local(&mut self, expr: &Expr, name: &Token) {
-        for n in (0..self.scopes.len()).rev() {
-            if self.scopes[n].contains_key(&name.lexeme.to_string()) {
+        for (n,scope) in self.scopes.iter_mut().rev().enumerate() {
+            let val = scope.get(&name.lexeme.to_string()).map(|v| v.clone()); //mutable_borrow_reservation_conflict
+            if let Some(v) = val.clone() {
+                scope.insert(name.lexeme.to_string(), v.used(true)); //not sure if this is a good idea
                 self.locals.insert(expr.clone(), self.scopes.len()-1-n);
                 return;
             }
@@ -192,14 +225,15 @@ impl Resolver {
                 self.non_critical_errors.push(ResolverError::new(err_token.clone(), 
                                                ResolverErrorReason::AlreadyExistsInScope(name)))
             } else {
-                scope.insert(name, false);
+                scope.insert(name, VarData::new(err_token.clone()));
             }
         }
     }
 
     fn define(&mut self, name: String) {
         if !self.scopes.is_empty() {
-            self.scopes.last_mut().unwrap().insert(name, true);
+            let scope = self.scopes.last_mut().unwrap();
+            scope.insert(name.clone(), scope.get(&name).unwrap().clone().defined(true).clone());
         }
     }
 
@@ -208,7 +242,13 @@ impl Resolver {
     }
 
     fn end_scope(&mut self) {
-        self.scopes.pop();
+        let scope = self.scopes.pop();
+        for (k,v) in scope.unwrap().iter() {
+            if !v.used {
+                self.non_critical_errors.push(ResolverError::new(v.declaration.clone(), 
+                                                             ResolverErrorReason::UnusedVariable))
+            }
+        }
     }
 }
 
@@ -231,5 +271,6 @@ impl ResolverError {
 pub enum ResolverErrorReason {
     CantReadInInit(String),
     AlreadyExistsInScope(String),
+    UnusedVariable,
     ReturnOutsideOfFunction,
 }
