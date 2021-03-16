@@ -12,6 +12,8 @@ pub enum Object {
     String(String),
     Number(f64),
     Callable(CallableObject),
+    Class(ClassObject),
+    //Instance(InstanceObject),
 }
 
 macro_rules! number_bin_op {
@@ -34,6 +36,7 @@ impl Object {
             Object::String(_) => true,
             Object::Number(n) => *n != 0.0,
             Object::Callable(_) => true, //???
+            Object::Class(_) => true, //???
         }
     }
 
@@ -103,6 +106,7 @@ impl fmt::Display for Object {
             Object::String(val) => write!(f, "{}", val),
             Object::Number(val) => write!(f, "{}", val),
             Object::Callable(_) => write!(f, "Callable"),
+            Object::Class(c) => write!(f, "Class<{}>", c.name),
         }
     }
 }
@@ -131,6 +135,7 @@ impl Trace for dyn Callable {
     }
 }
 
+//why the fuck is this called "BoxValues"
 pub struct BoxValues(pub Box<dyn Callable>);
 
 impl Trace for BoxValues {
@@ -183,7 +188,6 @@ impl fmt::Debug for CallableObject {
     }
 }
 
-
 #[derive(Trace)]
 pub struct Function {
     declaration: CcFunctionStmt,
@@ -217,3 +221,52 @@ impl Callable for Function {
         Some(&self.closure)
     }
 }
+
+
+//#[derive(Clone, Trace)]
+//pub struct CcClass(Cc<ClassObject>);
+//
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ClassObject {
+    name: String,
+//    cc: WeakRef<Self>,
+}
+
+impl ClassObject {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+        }
+    }
+
+//    pub fn get_cc(&self) -> CcClass {
+//
+//    }
+}
+
+//impl Callable for ClassObject {
+//    fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
+//        Ok(Object::Instance(InstanceObject::new(self.get_cc())))
+//    }
+//
+//    fn arity(&self) -> u8 {
+//        0
+//    }
+//
+//    fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
+//        None
+//    }
+//}
+//
+//#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+//pub struct InstanceObject {
+//    class: Cc<ClassObject>,
+//}
+//
+//impl InstanceObject {
+//    pub fn new(class: Cc<ClassObject>) -> Self {
+//        Self {
+//            class,
+//        }
+//    }
+//}

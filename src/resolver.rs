@@ -53,6 +53,7 @@ impl Resolver {
             Stmt::Return(stmt) => self.resolve_return(&stmt),
             Stmt::While(stmt) => self.resolve_while(&stmt),
             Stmt::Fun(stmt) => self.resolve_fun(&stmt),
+            Stmt::Class(stmt) => self.resolve_class(&stmt),
             Stmt::Var(stmt) => self.resolve_var_stmt(&stmt),
             Stmt::Block(stmt) => self.resolve_block_stmt(&stmt),
         }
@@ -99,6 +100,12 @@ impl Resolver {
         self.declare(stmt.stmt.0.lexeme.clone(), &stmt.stmt.0);
         self.define(stmt.stmt.0.lexeme.clone());
         self.resolve_function(stmt, FunctionType::Function)
+    }
+
+    fn resolve_class(&mut self, stmt: &StmtVar::Class) -> Result<(),ResolverError> {
+        self.declare(stmt.name.lexeme.clone(), &stmt.name);
+        self.define(stmt.name.lexeme.clone());
+        Ok(())
     }
 
     fn resolve_function(&mut self, stmt: &StmtVar::Fun, function_type: FunctionType) -> Result<(),ResolverError> {
