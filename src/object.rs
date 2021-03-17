@@ -1,4 +1,6 @@
 use std::fmt;
+use std::collections::HashMap;
+use std::cell::RefCell;
 use gcmodule::{Cc,Trace,Tracer};
 use strum_macros::EnumDiscriminants;
 use crate::interpreter::*;
@@ -12,8 +14,8 @@ pub enum Object {
     String(String),
     Number(f64),
     Callable(CallableObject),
-    Class(ClassObject),
-    //Instance(InstanceObject),
+    Class(CcClass),
+    Instance(CcInstanceObject),
 }
 
 macro_rules! number_bin_op {
@@ -37,6 +39,7 @@ impl Object {
             Object::Number(n) => *n != 0.0,
             Object::Callable(_) => true, //???
             Object::Class(_) => true, //???
+            Object::Instance(_) => true, //???
         }
     }
 
@@ -83,7 +86,14 @@ impl Object {
                 } else {
                     Err(StateChange::ErrReason(ErrReason::WrongNumberOfArgs(f.arity(), args.len())))
                 }
-            }
+            },
+            Object::Class(c) => {
+                if c.arity() as usize == args.len() {
+                    c.call(interpreter, args)
+                } else {
+                    Err(StateChange::ErrReason(ErrReason::WrongNumberOfArgs(c.arity(), args.len())))
+                }
+            },
             _ => Err(StateChange::ErrReason(ErrReason::NotACallable(ObjectDiscriminants::from(self)))),
         }
     }
@@ -107,18 +117,25 @@ impl fmt::Display for Object {
             Object::Number(val) => write!(f, "{}", val),
             Object::Callable(_) => write!(f, "Callable"),
             Object::Class(c) => write!(f, "Class<{}>", c.name),
+            Object::Instance(c) => write!(f, "Instance<{}>", c.borrow().class.name),
         }
     }
 }
 
 impl Trace for Object {
     fn trace(&self, tracer: &mut Tracer) {
-        if let Object::Callable(callable) = self {
-            callable.trace(tracer)
+        match self {
+            Object::Callable(o) => o.trace(tracer),
+            Object::Class(o) => o.trace(tracer),
+            Object::Instance(o) => o.trace(tracer),
+            _ => {},
         }
     }
 }
 
+/////// FUNCTIONS
+
+//trait for everything that can be called
 pub trait Callable {
     fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange>;
     fn arity(&self) -> u8;
@@ -136,6 +153,7 @@ impl Trace for dyn Callable {
 }
 
 //why the fuck is this called "BoxValues"
+//i remember that this was needed because dyn
 pub struct BoxValues(pub Box<dyn Callable>);
 
 impl Trace for BoxValues {
@@ -188,6 +206,7 @@ impl fmt::Debug for CallableObject {
     }
 }
 
+//struct for functions defined in loc
 #[derive(Trace)]
 pub struct Function {
     declaration: CcFunctionStmt,
@@ -222,14 +241,21 @@ impl Callable for Function {
     }
 }
 
+/////// CLASSES
 
-//#[derive(Clone, Trace)]
-//pub struct CcClass(Cc<ClassObject>);
-//
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Trace)]
+pub struct CcClass(pub Cc<ClassObject>);
+
+impl std::ops::Deref for CcClass {
+    type Target = Cc<ClassObject>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Trace)]
 pub struct ClassObject {
     name: String,
-//    cc: WeakRef<Self>,
 }
 
 impl ClassObject {
@@ -238,35 +264,60 @@ impl ClassObject {
             name,
         }
     }
-
-//    pub fn get_cc(&self) -> CcClass {
-//
-//    }
 }
 
-//impl Callable for ClassObject {
-//    fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
-//        Ok(Object::Instance(InstanceObject::new(self.get_cc())))
-//    }
-//
-//    fn arity(&self) -> u8 {
-//        0
-//    }
-//
-//    fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
-//        None
-//    }
-//}
-//
-//#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-//pub struct InstanceObject {
-//    class: Cc<ClassObject>,
-//}
-//
-//impl InstanceObject {
-//    pub fn new(class: Cc<ClassObject>) -> Self {
-//        Self {
-//            class,
-//        }
-//    }
-//}
+impl Callable for CcClass {
+    fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
+        Ok(Some(Object::Instance(CcInstanceObject::new(self.0.clone()))))
+    }
+
+    fn arity(&self) -> u8 {
+        0
+    }
+
+    fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
+        None
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Trace)]
+pub struct CcInstanceObject(pub Cc<RefCell<InstanceObject>>);
+
+impl CcInstanceObject {
+    pub fn new(class: Cc<ClassObject>) -> Self {
+        Self(Cc::new(RefCell::new(InstanceObject {
+            class,
+            fields: HashMap::new(),
+        })))
+    }
+}
+
+impl std::ops::Deref for CcInstanceObject {
+    type Target = Cc<RefCell<InstanceObject>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Trace)]
+pub struct InstanceObject {
+    class: Cc<ClassObject>,
+    fields: HashMap<String,Object>,
+}
+
+impl InstanceObject {
+    pub fn new(class: Cc<ClassObject>) -> Self {
+        Self {
+            class,
+            fields: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, name: &str) -> Option<Object> {
+        self.fields.get(name).map(|v| v.clone())
+    }
+
+    pub fn set(&mut self, name: &str, value: Object) {
+        self.fields.insert(name.to_string(), value);
+    }
+}

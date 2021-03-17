@@ -162,8 +162,8 @@ impl Scanner {
     }
 
     fn is_alpha(&self, c: char) -> bool {
-        ('a'..'z').contains(&c) || 
-        ('A'..'Z').contains(&c) || 
+        ('a'..='z').contains(&c) || 
+        ('A'..='Z').contains(&c) || 
          c == '_'
     }
 

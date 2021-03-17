@@ -144,6 +144,7 @@ impl Stmt {
             Stmt::While(StmtVar::While{cond, ..}) => cond.get_token(),
             Stmt::Var(StmtVar::Var{name, ..}) => *(name.clone()),
             Stmt::Fun(StmtVar::Fun{stmt, ..}) => *(stmt.0.0.clone()),
+            Stmt::Class(StmtVar::Class{name, ..}) => *(name.clone()),
             Stmt::Block(StmtVar::Block{left_brace, ..}) => *(left_brace.clone()),
         }
     }
@@ -173,6 +174,8 @@ pub enum Expr {
     Logical { left: Box<Expr>, op: Box<Keyword>, right: Box<Expr> },
     Binary { left: Box<Expr>, op: Box<Token>, right: Box<Expr> },
     Call { callee: Box<Expr>, left_paren: Box<Token>, args: Vec<Expr> },
+    Get { object: Box<Expr>, name: Box<Token> },
+    Set { object: Box<Expr>, name: Box<Token>, value: Box<Expr> },
     Unary { op: Box<Token>, expr: Box<Expr> },
     Literal { token: Box<Token> },
     Variable { name: Box<Token> },
@@ -186,6 +189,8 @@ impl Expr {
             Expr::Logical(ExprVar::Logical{left, ..}) => left.get_token(),
             Expr::Binary(ExprVar::Binary{op, ..}) => *(op.clone()),
             Expr::Call(ExprVar::Call{left_paren, ..}) => *(left_paren.clone()),
+            Expr::Get(ExprVar::Get{name, ..}) => *(name.clone()),
+            Expr::Set(ExprVar::Set{name, ..}) => *(name.clone()),
             Expr::Unary(ExprVar::Unary{op, ..}) => *(op.clone()),
             Expr::Literal(ExprVar::Literal{token, ..}) => *(token.clone()),
             Expr::Variable(ExprVar::Variable{name, ..}) => *(name.clone()),

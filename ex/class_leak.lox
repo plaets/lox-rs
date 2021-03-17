@@ -1,0 +1,12 @@
+while(true) {
+    class asd {
+        zxc() {
+            print "asd";
+        }
+    }
+
+    var a = asd();
+    print a;
+    print asd;
+    //a.zxc();
+}

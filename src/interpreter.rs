@@ -162,6 +162,7 @@ impl Interpreter {
             Stmt::Return(stmt) => Ok(self.exec_return(stmt)?),
             Stmt::While(stmt) => Ok(self.exec_while(stmt)?),
             Stmt::Fun(stmt) => Ok(self.exec_fun(stmt)?),
+            Stmt::Class(stmt) => Ok(self.exec_class(stmt)?),
             Stmt::Var(stmt) => Ok(self.exec_var(stmt)?),
             Stmt::Block(stmt) => Ok(self.exec_block(stmt)?),
         }
@@ -201,6 +202,13 @@ impl Interpreter {
         let fun = &stmt.stmt;
         let function = Function::new(fun.clone(), self.env.get_current());
         self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Cc::new(BoxValues(Box::new(function))))));
+        Ok(None)
+    }
+
+    fn exec_class(&mut self, stmt: &StmtVar::Class) -> Result<Option<Object>,StateChange> {
+        self.env.define(stmt.name.lexeme.clone(), Object::Nil);
+        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone()))));
+        self.env.define(stmt.name.lexeme.clone(), class);
         Ok(None)
     }
 
@@ -255,6 +263,8 @@ impl Interpreter {
             Expr::Logical(expr) => self.evaluate_logical(&expr),
             Expr::Binary(expr) => self.evaluate_binary(&expr),
             Expr::Call(expr) => self.evaluate_call(&expr),
+            Expr::Get(expr) => self.evaluate_get(&expr),
+            Expr::Set(expr) => self.evaluate_set(&expr),
             Expr::Unary(expr) => self.evaluate_unary(&expr),
             Expr::Literal(expr) => self.get_object(&expr.token),
             Expr::Variable(expr) => self.evaluate_variable(&expr),
@@ -338,6 +348,26 @@ impl Interpreter {
         }
     }
 
+    fn evaluate_get(&mut self, expr: &ExprVar::Get) -> Result<Object,IntErr> {
+        match self.evaluate(&expr.object)? {
+            Object::Instance(i) => i.borrow().get(&expr.name.lexeme).map_or_else(
+                || Err(IntErr(*expr.name.clone(), ErrReason::UndefinedProperty)),
+                |v| Ok(v)),
+            _ => Err(IntErr(*expr.name.clone(), ErrReason::NotAnInstance))
+        }
+    }
+
+    fn evaluate_set(&mut self, expr: &ExprVar::Set) -> Result<Object,IntErr> {
+        match &mut self.evaluate(&expr.object)? {
+            Object::Instance(i) => {
+                let value = self.evaluate(&expr.value)?;
+                i.borrow_mut().set(&*expr.name.lexeme, value.clone());
+                Ok(value)
+            },
+            _ => Err(IntErr(*expr.name.clone(), ErrReason::NotAnInstance))
+        }
+    }
+
     fn evaluate_variable(&mut self, expr: &ExprVar::Variable) -> Result<Object,IntErr> {
         if let Some(distance) = self.locals_map.0.get(&Expr::from_variant(expr.clone())) {       //yeah this probably changes the hash
             
@@ -394,6 +424,8 @@ pub enum ErrReason {
     UndefinedVariable,
     InvalidBinaryOperands(ObjectDiscriminants, OperationType, ObjectDiscriminants),
     NotACallable(ObjectDiscriminants),
+    NotAnInstance,
+    UndefinedProperty,
     WrongNumberOfArgs(u8, usize), //expected, given
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),

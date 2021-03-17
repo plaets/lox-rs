@@ -65,6 +65,8 @@ impl Resolver {
             Expr::Logical(expr) => self.resolve_logical(&expr),
             Expr::Binary(expr) => self.resolve_binary(&expr),
             Expr::Call(expr) => self.resolve_call(&expr),
+            Expr::Get(expr) => self.resolve_get(&expr),
+            Expr::Set(expr) => self.resolve_set(&expr),
             Expr::Unary(expr) => self.resolve_expr(&expr.expr),
             Expr::Literal(_) => Ok(()),
             Expr::Variable(expr) => self.resolve_variable(&expr),
@@ -182,6 +184,15 @@ impl Resolver {
             self.resolve_expr(n)?;
         }
         Ok(())
+    }
+
+    fn resolve_get(&mut self, stmt: &ExprVar::Get) -> Result<(),ResolverError> {
+        self.resolve_expr(&stmt.object)
+    }
+
+    fn resolve_set(&mut self, stmt: &ExprVar::Set) -> Result<(),ResolverError> {
+        self.resolve_expr(&stmt.value)?;
+        self.resolve_expr(&stmt.object)
     }
 
     fn resolve_local(&mut self, expr: &Expr, name: &Token) {

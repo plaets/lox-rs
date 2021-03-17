@@ -61,7 +61,9 @@ impl Parser {
         if self.match_keyword(Keyword::Var) {
             sync_on_err!(self, self.var_declaration())
         } else if self.match_keyword(Keyword::Fun) {
-            sync_on_err!(self, self.fun_declaration())
+            sync_on_err!(self, self.fun_declaration().map(Stmt::from_variant))
+        } else if self.match_keyword(Keyword::Class) {
+            sync_on_err!(self, self.class_declaration().map(Stmt::from_variant))
         } else {
             sync_on_err!(self, self.statement())
         }
@@ -78,7 +80,7 @@ impl Parser {
     }
 
     //this could return FunctionStmt i guess... sorta inconsistent
-    fn fun_declaration(&mut self) -> Result<Stmt,ParseError> {
+    fn fun_declaration(&mut self) -> Result<StmtVar::Fun,ParseError> {
         let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedFunctionName))?;
         self.consume(TokenTypeDiscriminants::LeftParen, None)?;
 
@@ -98,11 +100,20 @@ impl Parser {
 
         self.consume(TokenTypeDiscriminants::RightParen, Some(ParseErrorReason::ExpectedFunctionParameterOrRightParen))?;
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
-        if let Stmt::Block(block) = self.block()? {
-            Ok(Stmt::from_variant(StmtVar::Fun{ stmt: CcFunctionStmt::new(FunctionStmt(Box::new(name), parameters, block)) }))
-        } else {
-            Err(ParseError(self.peek(), ParseErrorReason::Other("internal error: expected a block".to_owned())))
+        Ok(StmtVar::Fun{ stmt: CcFunctionStmt::new(FunctionStmt(Box::new(name), parameters, self.block()?))})
+    }
+
+    fn class_declaration(&mut self) -> Result<StmtVar::Class,ParseError> {
+        let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedClassName))?;
+        self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
+        
+        let mut methods: Vec<CcFunctionStmt> = Vec::new();
+        while !self.check(TokenTypeDiscriminants::RightBrace) && !self.is_at_end() {
+            methods.push(self.fun_declaration()?.stmt);
         }
+
+        self.consume(TokenTypeDiscriminants::RightBrace, None)?;
+        Ok(StmtVar::Class{ name: Box::new(name.clone()), methods })
     }
 
     fn statement(&mut self) -> Result<Stmt,ParseError> {
@@ -117,21 +128,21 @@ impl Parser {
         } else if self.match_keyword(Keyword::While) {
             self.while_statement()
         } else if self.match_tokens(vec![TokenTypeDiscriminants::LeftBrace]) {
-            self.block()
+            self.block().map(Stmt::from_variant)
         } else {
             self.expr_statement()
         }
         //Err(ParseError(self.previous(), ParseErrorReason::NotImplemented))
     }
 
-    fn block(&mut self) -> Result<Stmt,ParseError> {
+    fn block(&mut self) -> Result<StmtVar::Block,ParseError> {
         let mut stmts: Vec<Stmt> = Vec::new();
         let start = self.previous();
         while !self.check(TokenTypeDiscriminants::RightBrace) && !self.is_at_end() {
             stmts.push(self.declaration()?);
         }
         self.consume(TokenTypeDiscriminants::RightBrace, None)?;
-        Ok(Stmt::from_variant(StmtVar::Block{ left_brace: Box::new(start), body: stmts }))
+        Ok(StmtVar::Block{ left_brace: Box::new(start), body: stmts })
     }
 
     fn if_statement(&mut self) -> Result<Stmt,ParseError> {
@@ -251,6 +262,8 @@ impl Parser {
             let value = self.assignment()?;
             if let Expr::Variable(ExprVar::Variable{ name }) = expr {
                 Ok(Expr::from_variant(ExprVar::Assign{name, expr: Box::new(value)}))
+            } else if let Expr::Get(e) = expr {
+                Ok(Expr::from_variant(ExprVar::Set{ object: e.object, name: e.name, value: Box::new(value) }))
             } else {
                 Err(ParseError(equals, ParseErrorReason::InvalidAssignmentTarget))
             }
@@ -301,6 +314,9 @@ impl Parser {
         loop {
             if self.match_tokens(vec![TokenTypeDiscriminants::LeftParen]) {
                 expr = self.finish_call(expr)?;
+            } else if self.match_tokens(vec![TokenTypeDiscriminants::Dot]) {
+                let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedPropertyName))?;
+                expr = Expr::from_variant(ExprVar::Get{ object: Box::new(expr), name: Box::new(name) });
             } else {
                 break;
             }
@@ -439,9 +455,11 @@ pub struct ParseError(Token, ParseErrorReason);
 #[derive(Debug, Clone)]
 pub enum ParseErrorReason {
     ExpectedToken(TokenTypeDiscriminants),
+    ExpectedPropertyName,
     ExpectedExpr,
     ExpectedVariableName,
     ExpectedFunctionName,
+    ExpectedClassName,
     ExpectedFunctionParameterOrRightParen,
     InvalidAssignmentTarget,
     TooManyArguments,
