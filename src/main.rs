@@ -15,7 +15,7 @@ use parser::*;
 mod interpreter;
 use interpreter::*;
 mod object;
-use object::{Object,BoxValues,CallableObject};
+use object::{Object,CallableObject};
 mod resolver;
 use resolver::*;
 mod native;
@@ -57,7 +57,7 @@ fn run(data: &str, globals: EnvironmentScope) -> Result<Option<Object>,IntErr> {
 
 fn get_default_env() -> EnvironmentScope {
     let env = Cc::new(RefCell::new(HashMap::new()));
-    (*env).borrow_mut().insert("clock".to_owned(), Object::Callable(CallableObject::new(Cc::new(BoxValues(Box::new(native::Clock{}))))));
+    (*env).borrow_mut().insert("clock".to_owned(), Object::Callable(CallableObject::new(Box::new(native::Clock{}))));
     env
 }
 

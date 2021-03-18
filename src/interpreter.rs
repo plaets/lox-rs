@@ -26,6 +26,9 @@ pub enum OperationType {
 }
 
 pub type EnvironmentScope = Cc<RefCell<HashMap<String, Object>>>;
+pub fn new_env_scope() -> EnvironmentScope {
+    Cc::new(RefCell::new(HashMap::new()))
+}
 
 #[derive(Debug)]
 pub struct Environment {
@@ -99,8 +102,11 @@ impl Environment {
         self.values[0] = globals;
     }
 
-    #[allow(unused)]
-    pub fn globals(&mut self) -> EnvironmentScope {
+    pub fn globals(&self) -> EnvironmentScope {
+        self.values.get(0).unwrap().clone()
+    }
+
+    pub fn globals_mut(&mut self) -> EnvironmentScope {
         self.values.get(0).unwrap().clone()
     }
 }
@@ -200,15 +206,22 @@ impl Interpreter {
     #[allow(clippy::unnecessary_wraps)]
     fn exec_fun(&mut self, stmt: &StmtVar::Fun) -> Result<Option<Object>,StateChange> {
         let fun = &stmt.stmt;
-        let function = Function::new(fun.clone(), self.env.get_current());
-        self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(Cc::new(BoxValues(Box::new(function))))));
+        let function = Box::new(Function::new(fun.clone(), self.env.get_current()));
+        self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(function)));
         Ok(None)
     }
 
     fn exec_class(&mut self, stmt: &StmtVar::Class) -> Result<Option<Object>,StateChange> {
         self.env.define(stmt.name.lexeme.clone(), Object::Nil);
-        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone()))));
-        self.env.define(stmt.name.lexeme.clone(), class);
+        
+        let mut methods: HashMap<String,CallableObject> = HashMap::new();
+        for m in stmt.methods.iter() {
+            let function = CallableObject::new(Box::new(Function::new(m.stmt.clone(), self.env.get_current())));
+            methods.insert(m.stmt.0.lexeme.clone(), function);
+        }
+        
+        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone(), methods))));
+        self.env.assign(stmt.name.lexeme.clone(), class);
         Ok(None)
     }
 
@@ -257,17 +270,18 @@ impl Interpreter {
         Ok(return_val)
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> Result<Object,IntErr> {
-        match expr {
+    fn evaluate(&mut self, m_expr: &Expr) -> Result<Object,IntErr> {
+        match m_expr {
             Expr::Assign(expr) => self.evaluate_assign(&expr),
             Expr::Logical(expr) => self.evaluate_logical(&expr),
             Expr::Binary(expr) => self.evaluate_binary(&expr),
             Expr::Call(expr) => self.evaluate_call(&expr),
             Expr::Get(expr) => self.evaluate_get(&expr),
             Expr::Set(expr) => self.evaluate_set(&expr),
+            Expr::This(expr) => self.evaluate_variable(&m_expr, &*expr.keyword),
             Expr::Unary(expr) => self.evaluate_unary(&expr),
             Expr::Literal(expr) => self.get_object(&expr.token),
-            Expr::Variable(expr) => self.evaluate_variable(&expr),
+            Expr::Variable(expr) => self.evaluate_variable(&m_expr, &*expr.name),
             Expr::Grouping(expr) => self.evaluate(&expr.expr),
         }
     }
@@ -350,7 +364,7 @@ impl Interpreter {
 
     fn evaluate_get(&mut self, expr: &ExprVar::Get) -> Result<Object,IntErr> {
         match self.evaluate(&expr.object)? {
-            Object::Instance(i) => i.borrow().get(&expr.name.lexeme).map_or_else(
+            Object::Instance(i) => i.get(&expr.name.lexeme).map_or_else(
                 || Err(IntErr(*expr.name.clone(), ErrReason::UndefinedProperty)),
                 |v| Ok(v)),
             _ => Err(IntErr(*expr.name.clone(), ErrReason::NotAnInstance))
@@ -368,18 +382,26 @@ impl Interpreter {
         }
     }
 
-    fn evaluate_variable(&mut self, expr: &ExprVar::Variable) -> Result<Object,IntErr> {
-        if let Some(distance) = self.locals_map.0.get(&Expr::from_variant(expr.clone())) {       //yeah this probably changes the hash
-            
-            self.env.get_at(&*expr.name.lexeme, *distance).map_or(
-                Err(int_err!(*expr.name.clone(), ErrReason::Critical(CriticalErrorReason::LocalVariableNotFound))), //should never happen i think?
-                Ok,
-            )
+    fn get_global_variable(&self, name: &Token) -> Result<Object,IntErr> {
+        self.env.globals().borrow().get(&name.lexeme).map_or(
+            Err(int_err!(name.clone(), ErrReason::UndefinedVariable)),
+            |v| Ok(v.clone()),
+        )
+    }
+
+    fn get_local_variable(&self, name: &Token, distance: usize) -> Result<Object,IntErr> {
+        self.env.get_at(&name.lexeme, distance).map_or(
+            Err(int_err!(name.clone(), ErrReason::Critical(CriticalErrorReason::LocalVariableNotFound))), //should never happen i think?
+            Ok,
+        )
+    }
+
+    //not the most error-proof function i guess
+    fn evaluate_variable(&mut self, expr: &Expr, name: &Token) -> Result<Object,IntErr> {
+        if let Some(distance) = self.locals_map.0.get(&expr) {
+            self.get_local_variable(&name, *distance)
         } else {
-            self.env.globals().borrow().get(&*expr.name.lexeme).map_or(
-                Err(int_err!(*expr.name.clone(), ErrReason::UndefinedVariable)),
-                |v| Ok(v.clone()),
-            )
+            self.get_global_variable(&name)
         }
     }
 

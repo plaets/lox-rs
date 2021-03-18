@@ -9,6 +9,7 @@ pub struct LocalsMap(pub HashMap<Expr,usize>);
 enum FunctionType {
     None,
     Function,
+    Method,
 }
 
 pub struct Resolver {
@@ -67,6 +68,7 @@ impl Resolver {
             Expr::Call(expr) => self.resolve_call(&expr),
             Expr::Get(expr) => self.resolve_get(&expr),
             Expr::Set(expr) => self.resolve_set(&expr),
+            Expr::This(expr) => self.resolve_this(&expr),
             Expr::Unary(expr) => self.resolve_expr(&expr.expr),
             Expr::Literal(_) => Ok(()),
             Expr::Variable(expr) => self.resolve_variable(&expr),
@@ -106,6 +108,15 @@ impl Resolver {
 
     fn resolve_class(&mut self, stmt: &StmtVar::Class) -> Result<(),ResolverError> {
         self.declare(stmt.name.lexeme.clone(), &stmt.name);
+        self.begin_scope();
+        self.scopes.last_mut().unwrap().insert("this".to_string(), true);
+
+        for m in stmt.methods.iter() {
+            let decl = FunctionType::Method;
+            self.resolve_function(&m, decl)?;
+        }
+
+        self.end_scope();
         self.define(stmt.name.lexeme.clone());
         Ok(())
     }
@@ -193,6 +204,11 @@ impl Resolver {
     fn resolve_set(&mut self, stmt: &ExprVar::Set) -> Result<(),ResolverError> {
         self.resolve_expr(&stmt.value)?;
         self.resolve_expr(&stmt.object)
+    }
+
+    fn resolve_this(&mut self, expr: &ExprVar::This) -> Result<(),ResolverError> {
+        self.resolve_local(&Expr::from_variant(expr.clone()), &expr.keyword);
+        Ok(())
     }
 
     fn resolve_local(&mut self, expr: &Expr, name: &Token) {

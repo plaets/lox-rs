@@ -1,0 +1,13 @@
+class A {
+    f() {
+        print this.text; 
+    }
+}
+
+var a = A();
+var b = A();
+a.text = "aaa";
+b.text = "bbb";
+a.f();
+b.f();
+

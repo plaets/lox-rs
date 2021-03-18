@@ -1,12 +1,14 @@
 while(true) {
+    var b = "asd";
+
     class asd {
         zxc() {
-            print "asd";
+            print b;
         }
     }
 
     var a = asd();
     print a;
     print asd;
-    //a.zxc();
+    a.zxc();
 }

@@ -135,9 +135,14 @@ impl Trace for Object {
 
 /////// FUNCTIONS
 
+//all of this is way too complicated tbh
+//i will need to come up with something better
+
 //trait for everything that can be called
 pub trait Callable {
     fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange>;
+    fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], _bound: EnvironmentScope) 
+        -> Result<Option<Object>,StateChange>;
     fn arity(&self) -> u8;
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
         None
@@ -152,50 +157,46 @@ impl Trace for dyn Callable {
     }
 }
 
-//why the fuck is this called "BoxValues"
-//i remember that this was needed because dyn
-pub struct BoxValues(pub Box<dyn Callable>);
+impl Trace for Box<dyn Callable> {
+    //i wanted to call trace from dyn Callable but i dnont know how
+    fn trace(&self, tracer: &mut Tracer) {
+        if let Some(env) = self.get_closure() {
+            env.trace(tracer)
+        }
+    }
+}
 
-impl Trace for BoxValues {
+#[derive(Clone)]
+pub struct CallableObject(Cc<Box<dyn Callable>>);
+
+//Cc<BoxValues> -> Cc<Box<dyn Callable>> there are like two layers of indirection, do i really need
+//that box? probably but i dont remember why
+//all the cc related boilerprate is way too complicated rn 
+
+impl CallableObject {
+    pub fn new(arg: Box<dyn Callable>) -> Self {
+        Self(Cc::new(arg))
+    }
+}
+
+impl Trace for CallableObject {
     fn trace(&self, tracer: &mut Tracer) {
         self.0.trace(tracer)
     }
 }
 
-impl std::ops::Deref for BoxValues {
-    type Target = Box<dyn Callable>;
+//why is everything fun forbidden
+impl core::ops::Deref for CallableObject {
+    type Target = Cc<Box<dyn Callable>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-#[derive(Clone, Trace)]
-pub struct CallableObject(Cc<BoxValues>);
-
-impl CallableObject {
-    pub fn new(arg: Cc<BoxValues>) -> Self {
-        Self(arg)
-    }
-}
-
-impl Callable for CallableObject {
-    fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
-        self.0.call(interpreter, args)
-    }
-
-    fn arity(&self) -> u8 {
-        self.0.arity()
-    }
-
-    fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
-        self.0.get_closure()
-    }
-}
-
 impl PartialEq for CallableObject {
     fn eq(&self, other: &Self) -> bool {
-        let left: *const BoxValues = &*self.0;
-        let right: *const BoxValues = &*other.0;
+        let left: *const Box<dyn Callable> = &*self.0;
+        let right: *const Box<dyn Callable> = &*other.0;
         left == right
     }
 }
@@ -207,7 +208,7 @@ impl fmt::Debug for CallableObject {
 }
 
 //struct for functions defined in loc
-#[derive(Trace)]
+#[derive(Debug, Clone, PartialEq, Trace)]
 pub struct Function {
     declaration: CcFunctionStmt,
     closure: Vec<EnvironmentScope>,     //maybe env as a linked list was a good idea? im sure i will intrudce so many cool bugs by trying to use slices here
@@ -239,11 +240,22 @@ impl Callable for Function {
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
         Some(&self.closure)
     }
+
+    fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], bound: EnvironmentScope) 
+            -> Result<Option<Object>,StateChange> {
+        let mut env = Environment::new_with(self.closure.clone());
+        env.push_foreign(bound);
+        env.push();
+        for (name,val) in self.declaration.1.iter().zip(args.iter()) {
+            env.define(name.lexeme.clone(), val.clone());
+        }
+        interpreter.exec_block_in_env(&self.declaration.2, &mut env)
+    }
 }
 
 /////// CLASSES
 
-#[derive(Clone, Debug, PartialEq, Eq, Trace)]
+#[derive(Clone, Debug, PartialEq, Trace)]
 pub struct CcClass(pub Cc<ClassObject>);
 
 impl std::ops::Deref for CcClass {
@@ -253,16 +265,22 @@ impl std::ops::Deref for CcClass {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Trace)]
+#[derive(Debug, Clone, PartialEq, Trace)]
 pub struct ClassObject {
     name: String,
+    methods: HashMap<String,CallableObject>,
 }
 
 impl ClassObject {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, methods: HashMap<String,CallableObject>) -> Self {
         Self {
             name,
+            methods,
         }
+    }
+
+    pub fn find_method(&self, name: &str) -> Option<CallableObject> {
+        self.methods.get(name).map(|v| v.clone())
     }
 }
 
@@ -275,8 +293,41 @@ impl Callable for CcClass {
         0
     }
 
+    fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], _bound: EnvironmentScope) -> Result<Option<Object>,StateChange> {
+        self.call(interpreter, args)
+    }
+
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
         None
+    }
+}
+
+//:__:
+pub struct BoundCallable {
+    callable: CallableObject,
+    bound: CcInstanceObject,
+}
+
+impl Callable for BoundCallable {
+    fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
+        let env = new_env_scope();
+        env.borrow_mut().insert("this".to_string(), Object::Instance(self.bound.clone()));
+        self.callable.call_with_bound(interpreter, args, env)
+    }
+
+    //alos this just silently fails if callable does not support it lmao
+    fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], bound: EnvironmentScope) 
+        -> Result<Option<Object>,StateChange> {
+        //wont contain this lol
+        self.callable.call_with_bound(interpreter, args, bound)
+    }
+
+    fn arity(&self) -> u8 {
+        self.callable.arity()
+    }
+
+    fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
+        self.callable.get_closure() //won't contain this tho
     }
 }
 
@@ -289,6 +340,16 @@ impl CcInstanceObject {
             class,
             fields: HashMap::new(),
         })))
+    }
+
+    pub fn get(&self, name: &str) -> Option<Object> {
+        if let Some(v) = (*self.0).borrow().fields.get(name) {
+            Some(v.clone())
+        } else if let Some(m) = (*self.0).borrow().class.find_method(name) {
+            Some(Object::Callable(CallableObject::new(Box::new(BoundCallable{ callable: m, bound: self.clone() }))))
+        } else {
+            None
+        }
     }
 }
 
@@ -311,10 +372,6 @@ impl InstanceObject {
             class,
             fields: HashMap::new(),
         }
-    }
-
-    pub fn get(&self, name: &str) -> Option<Object> {
-        self.fields.get(name).map(|v| v.clone())
     }
 
     pub fn set(&mut self, name: &str, value: Object) {

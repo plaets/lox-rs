@@ -86,10 +86,10 @@ impl fmt::Display for Token {
     }
 }
 
-#[derive(Debug,Clone,Hash)]
+#[derive(Debug,Clone,PartialEq,Hash)]
 pub struct FunctionStmt(pub Box<Token>, pub Vec<Token>, pub StmtVar::Block);     //name, args, body
 
-#[derive(Debug,Clone,Trace)]
+#[derive(Debug,Clone,PartialEq,Trace)]
 pub struct CcFunctionStmt(Cc<FunctionStmt>);
 
 impl std::ops::Deref for CcFunctionStmt {
@@ -119,7 +119,7 @@ impl Trace for FunctionStmt {
 }
 
 #[newtype_enum(variants = "pub StmtVar")]
-#[derive(Debug,Clone,Hash)]
+#[derive(Debug,Clone,PartialEq,Hash)]
 pub enum Stmt {
     ExprStmt { expr: Expr },
     If { cond: Expr, then: Box<Stmt>, else_b: Option<Box<Stmt>> },
@@ -129,7 +129,7 @@ pub enum Stmt {
     Var { name: Box<Token>, init: Option<Expr> },
     //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
     Fun { stmt: CcFunctionStmt },
-    Class { name: Box<Token>, methods: Vec<CcFunctionStmt> },
+    Class { name: Box<Token>, methods: Vec<StmtVar::Fun> },
     //having tokens here is pretty cool as it allows better error handling 
     Block { left_brace: Box<Token>, body: Vec<Stmt> },
 }
@@ -176,6 +176,7 @@ pub enum Expr {
     Call { callee: Box<Expr>, left_paren: Box<Token>, args: Vec<Expr> },
     Get { object: Box<Expr>, name: Box<Token> },
     Set { object: Box<Expr>, name: Box<Token>, value: Box<Expr> },
+    This { keyword: Box<Token> },
     Unary { op: Box<Token>, expr: Box<Expr> },
     Literal { token: Box<Token> },
     Variable { name: Box<Token> },
@@ -191,6 +192,7 @@ impl Expr {
             Expr::Call(ExprVar::Call{left_paren, ..}) => *(left_paren.clone()),
             Expr::Get(ExprVar::Get{name, ..}) => *(name.clone()),
             Expr::Set(ExprVar::Set{name, ..}) => *(name.clone()),
+            Expr::This(ExprVar::This{keyword, ..}) => *(keyword.clone()),
             Expr::Unary(ExprVar::Unary{op, ..}) => *(op.clone()),
             Expr::Literal(ExprVar::Literal{token, ..}) => *(token.clone()),
             Expr::Variable(ExprVar::Variable{name, ..}) => *(name.clone()),

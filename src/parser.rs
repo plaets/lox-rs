@@ -107,9 +107,9 @@ impl Parser {
         let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedClassName))?;
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
         
-        let mut methods: Vec<CcFunctionStmt> = Vec::new();
+        let mut methods: Vec<StmtVar::Fun> = Vec::new();
         while !self.check(TokenTypeDiscriminants::RightBrace) && !self.is_at_end() {
-            methods.push(self.fun_declaration()?.stmt);
+            methods.push(self.fun_declaration()?);
         }
 
         self.consume(TokenTypeDiscriminants::RightBrace, None)?;
@@ -347,6 +347,7 @@ impl Parser {
                 match id {
                     Keyword::False | Keyword::True | Keyword::Nil => 
                         return Ok(Expr::from_variant(ExprVar::Literal{token: Box::new(token)})),
+                    Keyword::This => return Ok(Expr::from_variant(ExprVar::This{keyword: Box::new(token)})),
                     _ => ()
                 }
             } else {
