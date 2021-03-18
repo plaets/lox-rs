@@ -5,11 +5,18 @@ use crate::ast::{Stmt,Expr,Token,ExprVar,StmtVar};
 #[derive(Debug)]
 pub struct LocalsMap(pub HashMap<Expr,usize>);
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum FunctionType {
     None,
     Function,
+    Initializer,
     Method,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ClassType {
+    None,
+    Class,
 }
 
 pub struct Resolver {
@@ -17,6 +24,7 @@ pub struct Resolver {
     locals: HashMap<Expr,usize>,                //why does this compile and what bugs does this cause
     non_critical_errors: Vec<ResolverError>,
     current_function: FunctionType,
+    current_class: ClassType,
 }
 
 impl Resolver {
@@ -26,6 +34,7 @@ impl Resolver {
             locals: HashMap::new(),
             non_critical_errors: vec![],
             current_function: FunctionType::None,
+            current_class: ClassType::None,
         }
     }
 
@@ -107,22 +116,30 @@ impl Resolver {
     }
 
     fn resolve_class(&mut self, stmt: &StmtVar::Class) -> Result<(),ResolverError> {
+        let enc = self.current_class;
+        self.current_class = ClassType::Class;
+
         self.declare(stmt.name.lexeme.clone(), &stmt.name);
         self.begin_scope();
         self.scopes.last_mut().unwrap().insert("this".to_string(), true);
 
         for m in stmt.methods.iter() {
-            let decl = FunctionType::Method;
+            let mut decl = FunctionType::Method;
+            if m.stmt.0.lexeme == "init" {
+                decl = FunctionType::Initializer;
+            }
             self.resolve_function(&m, decl)?;
         }
 
         self.end_scope();
         self.define(stmt.name.lexeme.clone());
+
+        self.current_class = enc;
         Ok(())
     }
 
     fn resolve_function(&mut self, stmt: &StmtVar::Fun, function_type: FunctionType) -> Result<(),ResolverError> {
-        let enclosing = self.current_function.clone();
+        let enclosing = self.current_function;
         self.current_function = function_type;
 
         self.begin_scope();
@@ -152,6 +169,10 @@ impl Resolver {
                                              ResolverErrorReason::ReturnOutsideOfFunction))
         }
         if let Some(value) = &stmt.value {
+            if self.current_function == FunctionType::Initializer {
+                self.non_critical_errors.push(ResolverError::new(*stmt.keyword.clone(), 
+                                             ResolverErrorReason::ReturnInInit))
+            }
             self.resolve_expr(value)?;
         }
         Ok(())
@@ -207,6 +228,10 @@ impl Resolver {
     }
 
     fn resolve_this(&mut self, expr: &ExprVar::This) -> Result<(),ResolverError> {
+        if self.current_class == ClassType::None {
+            self.non_critical_errors.push(ResolverError::new(*expr.keyword.clone(), ResolverErrorReason::ThisOutsideOfClass))
+        }
+
         self.resolve_local(&Expr::from_variant(expr.clone()), &expr.keyword);
         Ok(())
     }
@@ -266,4 +291,6 @@ pub enum ResolverErrorReason {
     CantReadInInit(String),
     AlreadyExistsInScope(String),
     ReturnOutsideOfFunction,
+    ReturnInInit,
+    ThisOutsideOfClass,
 }

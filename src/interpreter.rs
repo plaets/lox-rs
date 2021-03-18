@@ -206,7 +206,7 @@ impl Interpreter {
     #[allow(clippy::unnecessary_wraps)]
     fn exec_fun(&mut self, stmt: &StmtVar::Fun) -> Result<Option<Object>,StateChange> {
         let fun = &stmt.stmt;
-        let function = Box::new(Function::new(fun.clone(), self.env.get_current()));
+        let function = Box::new(Function::new(fun.clone(), self.env.get_current(), false));
         self.env.define(fun.0.lexeme.to_string(), Object::Callable(CallableObject::new(function)));
         Ok(None)
     }
@@ -216,7 +216,8 @@ impl Interpreter {
         
         let mut methods: HashMap<String,CallableObject> = HashMap::new();
         for m in stmt.methods.iter() {
-            let function = CallableObject::new(Box::new(Function::new(m.stmt.clone(), self.env.get_current())));
+            let function = CallableObject::new(Box::new(Function::new(m.stmt.clone(), self.env.get_current(), 
+                                                                      m.stmt.0.lexeme == "init")));
             methods.insert(m.stmt.0.lexeme.clone(), function);
         }
         

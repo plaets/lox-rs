@@ -212,25 +212,31 @@ impl fmt::Debug for CallableObject {
 pub struct Function {
     declaration: CcFunctionStmt,
     closure: Vec<EnvironmentScope>,     //maybe env as a linked list was a good idea? im sure i will intrudce so many cool bugs by trying to use slices here
+    is_init: bool,
 }
 
 impl Function {
-    pub fn new(declaration: CcFunctionStmt, closure: Vec<EnvironmentScope>) -> Self {
+    pub fn new(declaration: CcFunctionStmt, closure: Vec<EnvironmentScope>, is_init: bool) -> Self {
         Self {
             declaration,
             closure,
+            is_init,
         }
+    }
+
+    fn finalize_call(&self, interpreter: &mut Interpreter, args: &[Object], env: &mut Environment) -> Result<Option<Object>,StateChange> {
+        env.push();
+        for (name,val) in self.declaration.1.iter().zip(args.iter()) {
+            env.define(name.lexeme.clone(), val.clone());
+        }
+        interpreter.exec_block_in_env(&self.declaration.2, env)
     }
 }
 
 impl Callable for Function {
     fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
         let mut env = Environment::new_with(self.closure.clone());
-        env.push();
-        for (name,val) in self.declaration.1.iter().zip(args.iter()) {
-            env.define(name.lexeme.clone(), val.clone());
-        }
-        interpreter.exec_block_in_env(&self.declaration.2, &mut env)
+        self.finalize_call(interpreter, args, &mut env)
     }
 
     fn arity(&self) -> u8 {
@@ -244,12 +250,13 @@ impl Callable for Function {
     fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], bound: EnvironmentScope) 
             -> Result<Option<Object>,StateChange> {
         let mut env = Environment::new_with(self.closure.clone());
-        env.push_foreign(bound);
-        env.push();
-        for (name,val) in self.declaration.1.iter().zip(args.iter()) {
-            env.define(name.lexeme.clone(), val.clone());
+        env.push_foreign(bound.clone());
+        let res = self.finalize_call(interpreter, args, &mut env)?;
+        if self.is_init {
+            Ok(Some(bound.borrow().get("this").unwrap().clone())) //finalize_call pushes one env, shit is sorta fishy ngl
+        } else {
+            Ok(res)
         }
-        interpreter.exec_block_in_env(&self.declaration.2, &mut env)
     }
 }
 
@@ -286,11 +293,21 @@ impl ClassObject {
 
 impl Callable for CcClass {
     fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
-        Ok(Some(Object::Instance(CcInstanceObject::new(self.0.clone()))))
+        let instance = CcInstanceObject::new(self.0.clone());
+        if let Some(init) = self.find_method("init") {
+            let env = new_env_scope();
+            env.borrow_mut().insert("this".to_string(), Object::Instance(instance.clone()));
+            init.call_with_bound(interpreter, args, env)?;
+        }
+        Ok(Some(Object::Instance(instance)))
     }
 
     fn arity(&self) -> u8 {
-        0
+        if let Some(init) = self.find_method("init") {
+            init.arity()
+        } else {
+            0
+        }
     }
 
     fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], _bound: EnvironmentScope) -> Result<Option<Object>,StateChange> {

@@ -1,0 +1,16 @@
+this;
+
+fun asd() {
+    print this;
+
+    fun zxc() {
+        print this.a;
+    }
+}
+
+class x { 
+    ex() {
+        this.asd = "xzc";
+    }
+}
+

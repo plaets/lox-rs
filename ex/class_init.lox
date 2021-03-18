@@ -1,0 +1,35 @@
+class asd {
+    init() {
+        print "asd init";
+        return;
+    }
+}
+
+class cvb {
+    init(a) {
+        if(a == 2) {
+            return;
+        }
+        print a;
+    }
+}
+
+class x {
+    init() {
+        return;
+    }
+}
+
+var a = asd();
+print a;
+print a.init();
+
+var b = cvb(2);
+print b;
+print b.init(3);
+
+var b2 = cvb(3);
+print b;
+print b.init(2);
+
+print x().init();
