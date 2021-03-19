@@ -288,8 +288,8 @@ impl ResolverError {
 
 #[derive(Clone, Debug)]
 pub enum ResolverErrorReason {
-    CantReadInInit(String),
     AlreadyExistsInScope(String),
+    CantReadInInit(String),
     ReturnOutsideOfFunction,
     ReturnInInit,
     ThisOutsideOfClass,
