@@ -147,6 +147,7 @@ pub trait Callable {
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
         None
     }
+    fn is_getter(&self) -> bool;
 }
 
 impl Trace for dyn Callable {
@@ -226,8 +227,10 @@ impl Function {
 
     fn finalize_call(&self, interpreter: &mut Interpreter, args: &[Object], env: &mut Environment) -> Result<Option<Object>,StateChange> {
         env.push();
-        for (name,val) in self.declaration.1.iter().zip(args.iter()) {
-            env.define(name.lexeme.clone(), val.clone());
+        if let Some(params) = &self.declaration.1 {
+            for (name,val) in params.iter().zip(args.iter()) {
+                env.define(name.lexeme.clone(), val.clone());
+            }
         }
         interpreter.exec_block_in_env(&self.declaration.2, env)
     }
@@ -240,11 +243,15 @@ impl Callable for Function {
     }
 
     fn arity(&self) -> u8 {
-        self.declaration.1.len() as u8
+        self.declaration.1.as_ref().map_or(0, |v| v.len() as u8)
     }
 
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
         Some(&self.closure)
+    }
+
+    fn is_getter(&self) -> bool {
+        self.declaration.1.is_none()
     }
 
     fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], bound: EnvironmentScope) 
@@ -276,18 +283,24 @@ impl std::ops::Deref for CcClass {
 pub struct ClassObject {
     name: String,
     methods: HashMap<String,CallableObject>,
+    getters: HashMap<String,CallableObject>,
 }
 
 impl ClassObject {
-    pub fn new(name: String, methods: HashMap<String,CallableObject>) -> Self {
+    pub fn new(name: String, methods: HashMap<String,CallableObject>, getters: HashMap<String,CallableObject>) -> Self {
         Self {
             name,
             methods,
+            getters,
         }
     }
 
     pub fn find_method(&self, name: &str) -> Option<CallableObject> {
         self.methods.get(name).map(|v| v.clone())
+    }
+
+    pub fn find_getter(&self, name: &str) -> Option<CallableObject> {
+        self.getters.get(name).map(|v| v.clone())
     }
 }
 
@@ -312,6 +325,10 @@ impl Callable for CcClass {
 
     fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], _bound: EnvironmentScope) -> Result<Option<Object>,StateChange> {
         self.call(interpreter, args)
+    }
+
+    fn is_getter(&self) -> bool {
+        false
     }
 
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
@@ -343,6 +360,10 @@ impl Callable for BoundCallable {
         self.callable.arity()
     }
 
+    fn is_getter(&self) -> bool {
+        self.callable.is_getter()
+    }
+
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
         self.callable.get_closure() //won't contain this tho
     }
@@ -364,6 +385,8 @@ impl CcInstanceObject {
             Some(v.clone())
         } else if let Some(m) = (*self.0).borrow().class.find_method(name) {
             Some(Object::Callable(CallableObject::new(Box::new(BoundCallable{ callable: m, bound: self.clone() }))))
+        } else if let Some(g) = (*self.0).borrow().class.find_getter(name) {
+            Some(Object::Callable(CallableObject::new(Box::new(BoundCallable{ callable: g, bound: self.clone() }))))
         } else {
             None
         }

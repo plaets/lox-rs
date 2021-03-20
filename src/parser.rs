@@ -61,7 +61,7 @@ impl Parser {
         if self.match_keyword(Keyword::Var) {
             sync_on_err!(self, self.var_declaration())
         } else if self.match_keyword(Keyword::Fun) {
-            sync_on_err!(self, self.fun_declaration().map(Stmt::from_variant))
+            sync_on_err!(self, self.fun_declaration(false).map(Stmt::from_variant))
         } else if self.match_keyword(Keyword::Class) {
             sync_on_err!(self, self.class_declaration().map(Stmt::from_variant))
         } else {
@@ -80,27 +80,35 @@ impl Parser {
     }
 
     //this could return FunctionStmt i guess... sorta inconsistent
-    fn fun_declaration(&mut self) -> Result<StmtVar::Fun,ParseError> {
+    fn fun_declaration(&mut self, allow_getters: bool) -> Result<StmtVar::Fun,ParseError> {
         let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedFunctionName))?;
-        self.consume(TokenTypeDiscriminants::LeftParen, None)?;
 
-        let mut parameters: Vec<Token> = Vec::new();
-        while let TokenType::Identifier(_) = self.peek().token_type {
-            parameters.push(self.peek().clone());
-            if parameters.len() == 255 {
-                self.non_critical_errors.push(ParseError(self.peek().clone(), ParseErrorReason::TooManyArguments))
-            }
-            self.advance();
-            if self.peek().token_type != TokenType::Comma {
-                break;
-            } else {
+        if self.peek().token_type == TokenType::LeftParen {
+            let mut parameters: Vec<Token> = Vec::new();
+            self.consume(TokenTypeDiscriminants::LeftParen, None)?;
+
+            while let TokenType::Identifier(_) = self.peek().token_type {
+                parameters.push(self.peek().clone());
+                if parameters.len() == 255 {
+                    self.non_critical_errors.push(ParseError(self.peek().clone(), ParseErrorReason::TooManyArguments))
+                }
                 self.advance();
+                if self.peek().token_type != TokenType::Comma {
+                    break;
+                } else {
+                    self.advance();
+                }
             }
-        }
 
-        self.consume(TokenTypeDiscriminants::RightParen, Some(ParseErrorReason::ExpectedFunctionParameterOrRightParen))?;
-        self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
-        Ok(StmtVar::Fun{ stmt: CcFunctionStmt::new(FunctionStmt(Box::new(name), parameters, self.block()?))})
+            self.consume(TokenTypeDiscriminants::RightParen, Some(ParseErrorReason::ExpectedFunctionParameterOrRightParen))?;
+            self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
+            Ok(StmtVar::Fun{ stmt: CcFunctionStmt::new(FunctionStmt(Box::new(name), Some(parameters), self.block()?))})
+        } else if allow_getters {
+            self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
+            Ok(StmtVar::Fun{ stmt: CcFunctionStmt::new(FunctionStmt(Box::new(name), None, self.block()?))})
+        } else {
+            Err(self.consume(TokenTypeDiscriminants::LeftParen, None).unwrap_err())
+        }
     }
 
     fn class_declaration(&mut self) -> Result<StmtVar::Class,ParseError> {
@@ -108,12 +116,18 @@ impl Parser {
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
         
         let mut methods: Vec<StmtVar::Fun> = Vec::new();
+        let mut getters: Vec<StmtVar::Fun> = Vec::new();
         while !self.check(TokenTypeDiscriminants::RightBrace) && !self.is_at_end() {
-            methods.push(self.fun_declaration()?);
+            let fun = self.fun_declaration(true)?;
+            if let Some(_) = fun.stmt.1 {
+                methods.push(fun);
+            } else {
+                getters.push(fun);
+            }
         }
 
         self.consume(TokenTypeDiscriminants::RightBrace, None)?;
-        Ok(StmtVar::Class{ name: Box::new(name.clone()), methods })
+        Ok(StmtVar::Class{ name: Box::new(name.clone()), methods, getters })
     }
 
     fn statement(&mut self) -> Result<Stmt,ParseError> {

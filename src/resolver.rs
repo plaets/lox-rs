@@ -131,6 +131,10 @@ impl Resolver {
             self.resolve_function(&m, decl)?;
         }
 
+        for g in stmt.getters.iter() {
+            self.resolve_function(&g, FunctionType::Method)?;
+        }
+
         self.end_scope();
         self.define(stmt.name.lexeme.clone());
 
@@ -143,9 +147,11 @@ impl Resolver {
         self.current_function = function_type;
 
         self.begin_scope();
-        for param in stmt.stmt.1.iter() {
-            self.declare(param.lexeme.clone(), param);
-            self.define(param.lexeme.clone());
+        if let Some(params) = &stmt.stmt.1 {
+            for param in params.iter() {
+                self.declare(param.lexeme.clone(), param);
+                self.define(param.lexeme.clone());
+            }
         }
         self.resolve_stmts(&stmt.stmt.2.body)?;
         self.end_scope();

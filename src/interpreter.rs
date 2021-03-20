@@ -215,13 +215,18 @@ impl Interpreter {
         self.env.define(stmt.name.lexeme.clone(), Object::Nil);
         
         let mut methods: HashMap<String,CallableObject> = HashMap::new();
+        let mut getters: HashMap<String,CallableObject> = HashMap::new();
         for m in stmt.methods.iter() {
             let function = CallableObject::new(Box::new(Function::new(m.stmt.clone(), self.env.get_current(), 
                                                                       m.stmt.0.lexeme == "init")));
             methods.insert(m.stmt.0.lexeme.clone(), function);
         }
+        for m in stmt.getters.iter() {
+            let getter = CallableObject::new(Box::new(Function::new(m.stmt.clone(), self.env.get_current(), false)));
+            getters.insert(m.stmt.0.lexeme.clone(), getter);
+        }
         
-        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone(), methods))));
+        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone(), methods, getters))));
         self.env.assign(stmt.name.lexeme.clone(), class);
         Ok(None)
     }
@@ -365,9 +370,26 @@ impl Interpreter {
 
     fn evaluate_get(&mut self, expr: &ExprVar::Get) -> Result<Object,IntErr> {
         match self.evaluate(&expr.object)? {
-            Object::Instance(i) => i.get(&expr.name.lexeme).map_or_else(
-                || Err(IntErr(*expr.name.clone(), ErrReason::UndefinedProperty)),
-                |v| Ok(v)),
+            Object::Instance(i) => {
+                let obj = i.get(&expr.name.lexeme).map_or_else(
+                    || Err(IntErr(*expr.name.clone(), ErrReason::UndefinedProperty)),
+                    |v| Ok(v));
+                if let Ok(Object::Callable(c)) = obj {
+                    if c.is_getter() {
+                        match c.call(self, &[]) {
+                            Ok(Some(val)) => Ok(val),
+                            Ok(None) => Ok(Object::Nil),
+                            Err(StateChange::Return(value)) => Ok(value),
+                            Err(StateChange::ErrReason(reason)) => Err(IntErr(*expr.name.clone(), reason)),
+                            Err(StateChange::Err(err)) => Err(err),
+                        }
+                    } else {
+                        Ok(Object::Callable(c))
+                    }
+                } else {
+                    obj
+                }
+            },
             _ => Err(IntErr(*expr.name.clone(), ErrReason::NotAnInstance))
         }
     }

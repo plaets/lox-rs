@@ -1,0 +1,47 @@
+var a = 4;
+
+class test {
+    init() {
+        this.c = 0;
+    }
+
+    zxc {
+        return this.a + 2;
+    }
+    
+    a {
+        return 80;
+    } 
+
+    vbn {
+        a = a-1;
+        return a;
+    }
+
+    p {
+        this.c = this.c + 1;
+        return this.c;
+    }
+
+    f() {
+        this.a;
+        return 2;
+    }
+    
+    f2(a) {
+        return a+a;
+    }
+}
+
+var t = test();
+print t.f() == 2;
+print t.zxc == 82;
+print t.a == 80;
+print t.vbn == 3;
+print a == 3;
+print t.p == 1;
+print t.p == 2;
+print t.f;
+print t.f2;
+print t.f2(3) == 6;
+

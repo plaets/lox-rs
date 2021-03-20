@@ -15,6 +15,10 @@ impl Callable for Clock {
         self.call(interpreter, args)
     }
 
+    fn is_getter(&self) -> bool {
+        false
+    }
+
     fn arity(&self) -> u8 {
         0
     }
