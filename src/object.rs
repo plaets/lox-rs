@@ -276,18 +276,29 @@ impl std::ops::Deref for CcClass {
 pub struct ClassObject {
     name: String,
     methods: HashMap<String,CallableObject>,
+    superclass: Option<CcClass>,
 }
 
 impl ClassObject {
-    pub fn new(name: String, methods: HashMap<String,CallableObject>) -> Self {
+    pub fn new(name: String, methods: HashMap<String,CallableObject>, superclass: Option<CcClass>) -> Self {
         Self {
             name,
             methods,
+            superclass,
         }
     }
 
     pub fn find_method(&self, name: &str) -> Option<CallableObject> {
-        self.methods.get(name).map(|v| v.clone())
+        match self.methods.get(name).map(|v| v.clone()) {
+            Some(m) => Some(m),
+            None => {
+                if let Some(superclass) = &self.superclass {
+                    superclass.find_method(name)
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 
@@ -321,8 +332,8 @@ impl Callable for CcClass {
 
 //:__:
 pub struct BoundCallable {
-    callable: CallableObject,
-    bound: CcInstanceObject,
+    pub callable: CallableObject,
+    pub bound: CcInstanceObject,
 }
 
 impl Callable for BoundCallable {

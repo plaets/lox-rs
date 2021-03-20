@@ -129,7 +129,7 @@ pub enum Stmt {
     Var { name: Box<Token>, init: Option<Expr> },
     //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
     Fun { stmt: CcFunctionStmt },
-    Class { name: Box<Token>, methods: Vec<StmtVar::Fun> },
+    Class { name: Box<Token>, methods: Vec<StmtVar::Fun>, superclass: Option<ExprVar::Variable> },
     //having tokens here is pretty cool as it allows better error handling 
     Block { left_brace: Box<Token>, body: Vec<Stmt> },
 }
@@ -177,6 +177,7 @@ pub enum Expr {
     Get { object: Box<Expr>, name: Box<Token> },
     Set { object: Box<Expr>, name: Box<Token>, value: Box<Expr> },
     This { keyword: Box<Token> },
+    Super { keyword: Box<Token>, method: Box<Token> },
     Unary { op: Box<Token>, expr: Box<Expr> },
     Literal { token: Box<Token> },
     Variable { name: Box<Token> },
@@ -193,6 +194,7 @@ impl Expr {
             Expr::Get(ExprVar::Get{name, ..}) => *(name.clone()),
             Expr::Set(ExprVar::Set{name, ..}) => *(name.clone()),
             Expr::This(ExprVar::This{keyword, ..}) => *(keyword.clone()),
+            Expr::Super(ExprVar::Super{keyword, ..}) => *(keyword.clone()),
             Expr::Unary(ExprVar::Unary{op, ..}) => *(op.clone()),
             Expr::Literal(ExprVar::Literal{token, ..}) => *(token.clone()),
             Expr::Variable(ExprVar::Variable{name, ..}) => *(name.clone()),

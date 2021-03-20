@@ -212,7 +212,21 @@ impl Interpreter {
     }
 
     fn exec_class(&mut self, stmt: &StmtVar::Class) -> Result<Option<Object>,StateChange> {
+        let mut superclass: Option<CcClass> = None;
+        if let Some(s) = &stmt.superclass {
+            match int_to_st!(self.evaluate(&Expr::from_variant(s.clone())))? {
+                Object::Class(c) => superclass = Some(c),
+                _ => return Err(StateChange::Err(IntErr(*s.name.clone(),
+                                                      ErrReason::SuperclassIsNotAClass)))
+            }
+        }
+
         self.env.define(stmt.name.lexeme.clone(), Object::Nil);
+
+        if let Some(ref s) = &superclass {
+            self.env.push();
+            self.env.define("super".to_string(), Object::Class(s.clone()));
+        }
         
         let mut methods: HashMap<String,CallableObject> = HashMap::new();
         for m in stmt.methods.iter() {
@@ -221,7 +235,12 @@ impl Interpreter {
             methods.insert(m.stmt.0.lexeme.clone(), function);
         }
         
-        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone(), methods))));
+        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone(), methods, superclass.clone()))));
+
+        if let Some(_) = &superclass {
+            self.env.pop();
+        }
+
         self.env.assign(stmt.name.lexeme.clone(), class);
         Ok(None)
     }
@@ -280,6 +299,7 @@ impl Interpreter {
             Expr::Get(expr) => self.evaluate_get(&expr),
             Expr::Set(expr) => self.evaluate_set(&expr),
             Expr::This(expr) => self.evaluate_variable(&m_expr, &*expr.keyword),
+            Expr::Super(expr) => self.evaluate_super(&expr),
             Expr::Unary(expr) => self.evaluate_unary(&expr),
             Expr::Literal(expr) => self.get_object(&expr.token),
             Expr::Variable(expr) => self.evaluate_variable(&m_expr, &*expr.name),
@@ -406,6 +426,23 @@ impl Interpreter {
         }
     }
 
+    fn evaluate_super(&mut self, expr: &ExprVar::Super) -> Result<Object,IntErr> {
+        let distance = self.locals_map.0.get(&Expr::from_variant(expr.clone())).unwrap();
+        if let Object::Class(superclass) = self.env.get_at("super", *distance).unwrap() {
+            let method = superclass.find_method(&expr.method.lexeme);
+            if let None = method {
+                return Err(IntErr(*expr.method.clone(), ErrReason::UndefinedProperty))
+            }
+            if let Object::Instance(c) = self.env.get_at("this", distance-1).unwrap() {
+                Ok(Object::Callable(CallableObject::new(Box::new(BoundCallable{ callable: method.unwrap(), bound: c.clone() }))))
+            } else {
+                Err(int_err!(*expr.keyword.clone(), ErrReason::Critical(CriticalErrorReason::ThisIsNotAnInstance)))
+            }
+        } else {
+            Err(int_err!(*expr.keyword.clone(), ErrReason::Critical(CriticalErrorReason::SuperIsNotAClass)))
+        }
+    }
+
     fn evaluate_assign(&mut self, expr: &ExprVar::Assign) -> Result<Object,IntErr> {
         let value = self.evaluate(&expr.expr)?;
        
@@ -450,6 +487,7 @@ pub enum ErrReason {
     NotAnInstance,
     UndefinedProperty,
     WrongNumberOfArgs(u8, usize), //expected, given
+    SuperclassIsNotAClass,
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),
     ExpectedToken(TokenTypeDiscriminants),
@@ -461,4 +499,6 @@ pub enum ErrReason {
 pub enum CriticalErrorReason {
     LocalVariableNotFound,
     ReturnOutsideOfFunction,
+    SuperIsNotAClass,
+    ThisIsNotAnInstance,
 }

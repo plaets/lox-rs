@@ -17,6 +17,7 @@ enum FunctionType {
 enum ClassType {
     None,
     Class,
+    Subclass,
 }
 
 pub struct Resolver {
@@ -78,6 +79,7 @@ impl Resolver {
             Expr::Get(expr) => self.resolve_get(&expr),
             Expr::Set(expr) => self.resolve_set(&expr),
             Expr::This(expr) => self.resolve_this(&expr),
+            Expr::Super(expr) => self.resolve_super(&expr),
             Expr::Unary(expr) => self.resolve_expr(&expr.expr),
             Expr::Literal(_) => Ok(()),
             Expr::Variable(expr) => self.resolve_variable(&expr),
@@ -118,8 +120,21 @@ impl Resolver {
     fn resolve_class(&mut self, stmt: &StmtVar::Class) -> Result<(),ResolverError> {
         let enc = self.current_class;
         self.current_class = ClassType::Class;
-
         self.declare(stmt.name.lexeme.clone(), &stmt.name);
+        self.define(stmt.name.lexeme.clone());
+
+        if let Some(superclass) = &stmt.superclass {
+            if superclass.name.lexeme != stmt.name.lexeme {
+                self.current_class = ClassType::Subclass;
+                self.resolve_variable(&superclass)?;
+                self.begin_scope();
+                self.scopes.last_mut().unwrap().insert("super".to_string(), true);
+            } else {
+                self.non_critical_errors.push(ResolverError::new(*stmt.name.clone(), 
+                                             ResolverErrorReason::CantInheritFromSelf))
+            }
+        }
+
         self.begin_scope();
         self.scopes.last_mut().unwrap().insert("this".to_string(), true);
 
@@ -132,7 +147,10 @@ impl Resolver {
         }
 
         self.end_scope();
-        self.define(stmt.name.lexeme.clone());
+
+        if let Some(_) = &stmt.superclass {
+            self.end_scope();
+        }
 
         self.current_class = enc;
         Ok(())
@@ -236,6 +254,17 @@ impl Resolver {
         Ok(())
     }
 
+    fn resolve_super(&mut self, expr: &ExprVar::Super) -> Result<(),ResolverError> {
+        if self.current_class == ClassType::None {
+            self.non_critical_errors.push(ResolverError::new(*expr.keyword.clone(), ResolverErrorReason::SuperOutsideOfClass))
+        } else {
+            self.non_critical_errors.push(ResolverError::new(*expr.keyword.clone(),
+                                                             ResolverErrorReason::SuperWithoutSuperclass))
+        }
+        self.resolve_local(&Expr::from_variant(expr.clone()), &expr.keyword);
+        Ok(())
+    }
+
     fn resolve_local(&mut self, expr: &Expr, name: &Token) {
         for n in (0..self.scopes.len()).rev() {
             if self.scopes[n].contains_key(&name.lexeme.to_string()) {
@@ -290,7 +319,10 @@ impl ResolverError {
 pub enum ResolverErrorReason {
     AlreadyExistsInScope(String),
     CantReadInInit(String),
+    CantInheritFromSelf,
     ReturnOutsideOfFunction,
     ReturnInInit,
     ThisOutsideOfClass,
+    SuperOutsideOfClass,
+    SuperWithoutSuperclass,
 }

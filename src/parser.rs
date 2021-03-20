@@ -105,6 +105,13 @@ impl Parser {
 
     fn class_declaration(&mut self) -> Result<StmtVar::Class,ParseError> {
         let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedClassName))?;
+
+        let mut superclass: Option<ExprVar::Variable> = None;
+        if self.match_tokens(vec![TokenTypeDiscriminants::Less]) {
+            superclass = Some(ExprVar::Variable{ name: Box::new(self.consume(TokenTypeDiscriminants::Identifier, 
+                                                                Some(ParseErrorReason::ExpectedSuperclassName))?) })
+        }
+
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
         
         let mut methods: Vec<StmtVar::Fun> = Vec::new();
@@ -113,7 +120,7 @@ impl Parser {
         }
 
         self.consume(TokenTypeDiscriminants::RightBrace, None)?;
-        Ok(StmtVar::Class{ name: Box::new(name.clone()), methods })
+        Ok(StmtVar::Class{ name: Box::new(name.clone()), methods, superclass })
     }
 
     fn statement(&mut self) -> Result<Stmt,ParseError> {
@@ -348,6 +355,12 @@ impl Parser {
                     Keyword::False | Keyword::True | Keyword::Nil => 
                         return Ok(Expr::from_variant(ExprVar::Literal{token: Box::new(token)})),
                     Keyword::This => return Ok(Expr::from_variant(ExprVar::This{keyword: Box::new(token)})),
+                    Keyword::Super => {
+                        self.consume(TokenTypeDiscriminants::Dot, None)?;
+                        let method = self.consume(TokenTypeDiscriminants::Identifier,
+                                                  Some(ParseErrorReason::ExpectedSuperclassMethodName))?;
+                        return Ok(Expr::from_variant(ExprVar::Super{keyword: Box::new(token), method: Box::new(method)}))
+                    }
                     _ => ()
                 }
             } else {
@@ -461,6 +474,8 @@ pub enum ParseErrorReason {
     ExpectedVariableName,
     ExpectedFunctionName,
     ExpectedClassName,
+    ExpectedSuperclassName,
+    ExpectedSuperclassMethodName,
     ExpectedFunctionParameterOrRightParen,
     InvalidAssignmentTarget,
     TooManyArguments,
