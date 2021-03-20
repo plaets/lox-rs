@@ -1,0 +1,15 @@
+class test {
+    class zxc() {
+        print "static";
+        return test();
+    }
+
+    zxc() {
+        print "instance";
+    }
+}
+
+var t = test();
+test.zxc().zxc();
+t.zxc();
+

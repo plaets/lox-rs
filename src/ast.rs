@@ -129,7 +129,7 @@ pub enum Stmt {
     Var { name: Box<Token>, init: Option<Expr> },
     //TODO: first field has to be an identifier, how to avoid having to check the type again in the interpreter?
     Fun { stmt: CcFunctionStmt },
-    Class { name: Box<Token>, methods: Vec<StmtVar::Fun> },
+    Class { name: Box<Token>, methods: Vec<StmtVar::Fun>, static_methods: Vec<StmtVar::Fun> },
     //having tokens here is pretty cool as it allows better error handling 
     Block { left_brace: Box<Token>, body: Vec<Stmt> },
 }

@@ -276,18 +276,24 @@ impl std::ops::Deref for CcClass {
 pub struct ClassObject {
     name: String,
     methods: HashMap<String,CallableObject>,
+    static_methods: HashMap<String,CallableObject>,
 }
 
 impl ClassObject {
-    pub fn new(name: String, methods: HashMap<String,CallableObject>) -> Self {
+    pub fn new(name: String, methods: HashMap<String,CallableObject>, static_methods: HashMap<String,CallableObject>) -> Self {
         Self {
             name,
             methods,
+            static_methods,
         }
     }
 
     pub fn find_method(&self, name: &str) -> Option<CallableObject> {
         self.methods.get(name).map(|v| v.clone())
+    }
+
+    pub fn find_static_method(&self, name: &str) -> Option<CallableObject> {
+        self.static_methods.get(name).map(|v| v.clone())
     }
 }
 

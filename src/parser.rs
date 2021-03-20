@@ -108,12 +108,17 @@ impl Parser {
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
         
         let mut methods: Vec<StmtVar::Fun> = Vec::new();
+        let mut static_methods: Vec<StmtVar::Fun> = Vec::new();
         while !self.check(TokenTypeDiscriminants::RightBrace) && !self.is_at_end() {
-            methods.push(self.fun_declaration()?);
+            if self.match_keyword(Keyword::Class) {
+                static_methods.push(self.fun_declaration()?);
+            } else {
+                methods.push(self.fun_declaration()?);
+            }
         }
 
         self.consume(TokenTypeDiscriminants::RightBrace, None)?;
-        Ok(StmtVar::Class{ name: Box::new(name.clone()), methods })
+        Ok(StmtVar::Class{ name: Box::new(name.clone()), methods, static_methods })
     }
 
     fn statement(&mut self) -> Result<Stmt,ParseError> {

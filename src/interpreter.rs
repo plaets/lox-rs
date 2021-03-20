@@ -220,8 +220,14 @@ impl Interpreter {
                                                                       m.stmt.0.lexeme == "init")));
             methods.insert(m.stmt.0.lexeme.clone(), function);
         }
+
+        let mut static_methods: HashMap<String,CallableObject> = HashMap::new();
+        for m in stmt.static_methods.iter() {
+            let function = CallableObject::new(Box::new(Function::new(m.stmt.clone(), self.env.get_current(), false)));
+            static_methods.insert(m.stmt.0.lexeme.clone(), function);
+        }
         
-        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone(), methods))));
+        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone(), methods, static_methods))));
         self.env.assign(stmt.name.lexeme.clone(), class);
         Ok(None)
     }
@@ -368,6 +374,9 @@ impl Interpreter {
             Object::Instance(i) => i.get(&expr.name.lexeme).map_or_else(
                 || Err(IntErr(*expr.name.clone(), ErrReason::UndefinedProperty)),
                 |v| Ok(v)),
+            Object::Class(c) => c.find_static_method(&expr.name.lexeme).map_or_else(
+                || Err(IntErr(*expr.name.clone(), ErrReason::UndefinedProperty)),
+                |v| Ok(Object::Callable(v))),
             _ => Err(IntErr(*expr.name.clone(), ErrReason::NotAnInstance))
         }
     }
