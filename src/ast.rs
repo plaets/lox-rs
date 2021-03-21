@@ -2,7 +2,7 @@ use std::fmt;
 use std::hash::{Hash,Hasher};
 use gcmodule::{Cc,Trace,Tracer};
 use strum_macros::EnumDiscriminants;
-use newtype_enum::newtype_enum;
+use newtype_enum::{newtype_enum,Enum};
 
 //is this enum necessary
 #[enumeration(rename_all = "snake_case")]
@@ -149,20 +149,26 @@ impl Stmt {
         }
     }
 
+    //super quality perfect code
+    //im just appending strings lol whats the problem
     #[cfg(test)]
     pub fn stringify_tree(&self) -> String {
         "(".to_string() + &match self {
             Stmt::ExprStmt(StmtVar::ExprStmt{expr}) => return expr.stringify_tree(),
+            Stmt::Class(StmtVar::Class{name, methods, superclass}) => format!("class {}{} [{}]", name.lexeme,
+                superclass.as_ref().map_or("".to_string(), |v| String::from(" < ") + &v.name.lexeme),
+                methods.iter().fold(String::new(), |t, v| t + &Stmt::from_variant(v.clone()).stringify_tree())),
             Stmt::If(StmtVar::If{cond, then, else_b}) => format!("if {} {}", cond.stringify_tree(), then.stringify_tree()) + 
                                             &else_b.as_ref().map_or("".to_string(), |v| " ".to_string() + &v.stringify_tree()),
             Stmt::Print(StmtVar::Print{expr}) => format!("print {}", expr.stringify_tree()),
             Stmt::Return(StmtVar::Return{value, ..}) => format!("return {}", value.as_ref().map_or("".to_string(), |v| v.stringify_tree())),
             Stmt::While(StmtVar::While{cond, body}) => format!("while {} {}", cond.stringify_tree(), body.stringify_tree()),
             Stmt::Var(StmtVar::Var{name, init}) => format!("var {} {}", name.lexeme.clone(), init.as_ref().map_or("".to_string(), |v| v.stringify_tree())),
-            Stmt::Fun(StmtVar::Fun{stmt}) => format!("fun {} {:?} {:?}", stmt.0.0.lexeme.clone(), 
-                                    stmt.1.iter().map(|v| v.lexeme.clone()).collect::<Vec<_>>(), 
-                                    format!("[{}]", stmt.2.body.iter().fold(String::new(), |t, v| t + &v.stringify_tree()))),
-            Stmt::Block(StmtVar::Block{body, ..}) => return format!("[{}]", body.iter().fold(String::new(), |t, v| t + &v.stringify_tree())),
+            Stmt::Fun(StmtVar::Fun{stmt}) => format!("fun {}({}) {}", stmt.0.0.lexeme.clone(), 
+                stmt.1.iter().fold(String::from(""), |t, v| t + &v.lexeme.clone()),
+                format!("[{}]", stmt.2.body.iter().fold(String::new(), 
+                |t, v| t + &v.stringify_tree()+ ",").strip_suffix(",").or(Some("")).unwrap())),
+            Stmt::Block(StmtVar::Block{body, ..}) => return format!("[{}]", body.iter().fold(String::new(), |t, v| t + &v.stringify_tree() + ",").strip_suffix(",").or(Some("")).unwrap()),
         }.to_string() + ")"
     }
 }
@@ -206,13 +212,19 @@ impl Expr {
     pub fn stringify_tree(&self) -> String {
         "(".to_string() + &match self {
             Expr::Assign(ExprVar::Assign{name, expr}) => format!("= {} {}", name.lexeme, expr.stringify_tree()),
+            Expr::Set(ExprVar::Set{name, object, value}) => format!("= {}.{} {}", object.stringify_tree(), name.lexeme, value.stringify_tree()),
+            Expr::Get(ExprVar::Get{name, object}) => format!("{}.{}", object.stringify_tree(), name.lexeme),
             Expr::Logical(ExprVar::Logical{left, op, right}) => format!("{:?} {} {}", op, left.stringify_tree(), right.stringify_tree()),
             Expr::Binary(ExprVar::Binary{left, op, right}) => format!("{} {} {}", op.lexeme, left.stringify_tree(), right.stringify_tree()),
-            Expr::Call(ExprVar::Call{callee, args, ..}) => format!("{} {:?}", callee.stringify_tree(), args),
+            Expr::Call(ExprVar::Call{callee, args, ..}) => format!("{} ({})", callee.stringify_tree(), 
+                                   args.iter().fold(String::new(), 
+                                   |t, v| t + &v.stringify_tree()+ ", ").strip_suffix(", ").or(Some("")).unwrap()),
             Expr::Unary(ExprVar::Unary{op, expr}) => format!("{} {}", op, expr.stringify_tree()),
             Expr::Literal(ExprVar::Literal{token}) => return token.lexeme.clone(),
-            Expr::Variable(ExprVar::Variable{name}) => name.lexeme.clone(),
+            Expr::Variable(ExprVar::Variable{name}) => return name.lexeme.clone(),
             Expr::Grouping(ExprVar::Grouping{expr}) => expr.stringify_tree(),
+            Expr::Super(ExprVar::Super{method,..}) => return format!("super.{}", method.lexeme), 
+            Expr::This(ExprVar::This{..}) => return format!("this"), 
         }.to_string() + ")"
     }
 }
