@@ -107,7 +107,7 @@ impl Resolver {
         if let Some(init) = &stmt.init {
             self.resolve_expr(init)?;
         }
-        self.define(name.clone());
+        self.define(name);
         Ok(())
     }
 
@@ -148,7 +148,7 @@ impl Resolver {
 
         self.end_scope();
 
-        if let Some(_) = &stmt.superclass {
+        if stmt.superclass.is_some() {
             self.end_scope();
         }
 
@@ -201,6 +201,7 @@ impl Resolver {
         self.resolve_stmt(&*stmt.body)
     }
 
+    #[allow(clippy::unnecessary_wraps, clippy::unit_arg)]
     fn resolve_variable(&mut self, expr: &ExprVar::Variable) -> Result<(),ResolverError> {
         if let Some(scope) = self.scopes.last() {
             let name = &expr.name.lexeme;
@@ -245,6 +246,7 @@ impl Resolver {
         self.resolve_expr(&stmt.object)
     }
 
+    #[allow(clippy::unnecessary_wraps, clippy::unit_arg)]
     fn resolve_this(&mut self, expr: &ExprVar::This) -> Result<(),ResolverError> {
         if self.current_class == ClassType::None {
             self.non_critical_errors.push(ResolverError::new(*expr.keyword.clone(), ResolverErrorReason::ThisOutsideOfClass))
@@ -254,6 +256,7 @@ impl Resolver {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps, clippy::unit_arg)]
     fn resolve_super(&mut self, expr: &ExprVar::Super) -> Result<(),ResolverError> {
         if self.current_class == ClassType::None {
             self.non_critical_errors.push(ResolverError::new(*expr.keyword.clone(), ResolverErrorReason::SuperOutsideOfClass))
@@ -274,6 +277,7 @@ impl Resolver {
         }
     }
 
+    #[allow(clippy::map_entry)]
     fn declare(&mut self, name: String, err_token: &Token) {
         if let Some(scope) = self.scopes.last_mut() { //TODO: im assuming this is none only if scopes is empty
             if scope.contains_key(&name) {

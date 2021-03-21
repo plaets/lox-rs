@@ -65,7 +65,7 @@ fn test_logical_expr() {
 #[test]
 fn test_if() {
     assert_eq!(parse_str_stmts("if(2 == 4) { 4; }"), "[(if (== 2 4) [4])]");
-    assert_eq!(parse_str_stmts("if(2 == 4) { 4; } else { 3; }"), "[(if (== 2 4) [4] [3])]");
+    assert_eq!(parse_str_stmts("if(2 == 4) { 4; 2; } else { 3; 1; }"), "[(if (== 2 4) [4,2] [3,1])]");
 }
 
 //this isnt even useful

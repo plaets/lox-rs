@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::cell::RefCell;
 use gcmodule::Cc;
+use inventory;
 
 mod lexer;
 use lexer::*;
@@ -15,10 +16,12 @@ use parser::*;
 mod interpreter;
 use interpreter::*;
 mod object;
-use object::{Object,CallableObject};
+use object::{Object};
 mod resolver;
 use resolver::*;
+#[allow(non_camel_case_types)]
 mod native;
+use native::*;
 mod ast;
 
 #[cfg(test)]
@@ -55,9 +58,12 @@ fn run(data: &str, globals: EnvironmentScope) -> Result<Option<Object>,IntErr> {
     }
 }
 
+inventory::collect!(NativeInventoryEntry);
 fn get_default_env() -> EnvironmentScope {
     let env = Cc::new(RefCell::new(HashMap::new()));
-    (*env).borrow_mut().insert("clock".to_owned(), Object::Callable(CallableObject::new(Box::new(native::Clock{}))));
+    for entry in inventory::iter::<NativeInventoryEntry> {
+        (*env).borrow_mut().insert(entry.0.clone(), entry.1.clone());
+    }
     env
 }
 

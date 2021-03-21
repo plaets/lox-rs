@@ -2,7 +2,7 @@ use std::fmt;
 use std::hash::{Hash,Hasher};
 use gcmodule::{Cc,Trace,Tracer};
 use strum_macros::EnumDiscriminants;
-use newtype_enum::{newtype_enum,Enum};
+use newtype_enum::{newtype_enum};
 
 //is this enum necessary
 #[enumeration(rename_all = "snake_case")]
@@ -64,12 +64,6 @@ pub struct Token {
     pub line: usize,
 }
 
-//impl fmt::Debug for Token {
-//    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//        write!(f, "{:?}", self.token_type)
-//    }
-//}
-
 impl Token {
     pub fn new(token_type: TokenType, lexeme: String, line: usize) -> Self {
         Self {
@@ -89,7 +83,7 @@ impl fmt::Display for Token {
 #[derive(Debug,Clone,PartialEq,Hash)]
 pub struct FunctionStmt(pub Box<Token>, pub Vec<Token>, pub StmtVar::Block);     //name, args, body
 
-#[derive(Debug,Clone,PartialEq,Trace)]
+#[derive(Debug,Clone,Trace)]
 pub struct CcFunctionStmt(Cc<FunctionStmt>);
 
 impl std::ops::Deref for CcFunctionStmt {
@@ -103,8 +97,12 @@ impl std::ops::Deref for CcFunctionStmt {
 impl Hash for CcFunctionStmt {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state);
-        self.1.hash(state);
-        self.2.hash(state);
+    }
+}
+
+impl PartialEq for CcFunctionStmt {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
     }
 }
 
@@ -153,6 +151,7 @@ impl Stmt {
     //im just appending strings lol whats the problem
     #[cfg(test)]
     pub fn stringify_tree(&self) -> String {
+        use newtype_enum::Enum;
         "(".to_string() + &match self {
             Stmt::ExprStmt(StmtVar::ExprStmt{expr}) => return expr.stringify_tree(),
             Stmt::Class(StmtVar::Class{name, methods, superclass}) => format!("class {}{} [{}]", name.lexeme,

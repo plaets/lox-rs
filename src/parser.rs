@@ -120,7 +120,7 @@ impl Parser {
         }
 
         self.consume(TokenTypeDiscriminants::RightBrace, None)?;
-        Ok(StmtVar::Class{ name: Box::new(name.clone()), methods, superclass })
+        Ok(StmtVar::Class{ name: Box::new(name), methods, superclass })
     }
 
     fn statement(&mut self) -> Result<Stmt,ParseError> {

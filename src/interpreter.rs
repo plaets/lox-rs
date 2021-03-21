@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::collections::HashMap;
 use std::mem::swap;
 use gcmodule::{Cc,collect_thread_cycles};
@@ -33,6 +34,12 @@ pub fn new_env_scope() -> EnvironmentScope {
 #[derive(Debug)]
 pub struct Environment {
     values: Vec<EnvironmentScope>,
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Environment {
@@ -78,7 +85,7 @@ impl Environment {
     }
 
     pub fn get_at(&self, name: &str, at: usize) -> Option<Object> {
-        self.values.iter().rev().nth(at).map_or(None, |e| e.borrow().get(name).cloned()) //does this actually work
+        self.values.iter().rev().nth(at).and_then(|e| e.borrow().get(name).cloned()) //does this actually work
     }
 
     pub fn push(&mut self) {
@@ -237,7 +244,7 @@ impl Interpreter {
         
         let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone(), methods, superclass.clone()))));
 
-        if let Some(_) = &superclass {
+        if superclass.is_some() {
             self.env.pop();
         }
 
@@ -387,7 +394,7 @@ impl Interpreter {
         match self.evaluate(&expr.object)? {
             Object::Instance(i) => i.get(&expr.name.lexeme).map_or_else(
                 || Err(IntErr(*expr.name.clone(), ErrReason::UndefinedProperty)),
-                |v| Ok(v)),
+                Ok),
             _ => Err(IntErr(*expr.name.clone(), ErrReason::NotAnInstance))
         }
     }
@@ -430,11 +437,11 @@ impl Interpreter {
         let distance = self.locals_map.0.get(&Expr::from_variant(expr.clone())).unwrap();
         if let Object::Class(superclass) = self.env.get_at("super", *distance).unwrap() {
             let method = superclass.find_method(&expr.method.lexeme);
-            if let None = method {
+            if method.is_none() {
                 return Err(IntErr(*expr.method.clone(), ErrReason::UndefinedProperty))
             }
             if let Object::Instance(c) = self.env.get_at("this", distance-1).unwrap() {
-                Ok(Object::Callable(CallableObject::new(Box::new(BoundCallable{ callable: method.unwrap(), bound: c.clone() }))))
+                Ok(Object::Callable(CallableObject::new(Box::new(BoundCallable{ callable: method.unwrap(), bound: c }))))
             } else {
                 Err(int_err!(*expr.keyword.clone(), ErrReason::Critical(CriticalErrorReason::ThisIsNotAnInstance)))
             }
@@ -452,12 +459,10 @@ impl Interpreter {
             } else {
                 Err(int_err!(*expr.name.clone(), ErrReason::Critical(CriticalErrorReason::LocalVariableNotFound)))
             }
-        } else {
-            if self.env.assign(expr.name.lexeme.clone(), value.clone()).is_some() {
+        } else if self.env.assign(expr.name.lexeme.clone(), value.clone()).is_some() {
                 Ok(value)
-            } else {
-                Err(int_err!(*expr.name.clone(), ErrReason::UndefinedVariable))
-            }
+        } else {
+            Err(int_err!(*expr.name.clone(), ErrReason::UndefinedVariable))
         }
     }
 }
@@ -477,6 +482,8 @@ pub enum StateChange {
 //TODO: change to just error
 pub struct IntErr(pub Token, pub ErrReason);
 
+pub trait NativeError: core::fmt::Debug + core::fmt::Display { }
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum ErrReason {
@@ -488,6 +495,7 @@ pub enum ErrReason {
     UndefinedProperty,
     WrongNumberOfArgs(u8, usize), //expected, given
     SuperclassIsNotAClass,
+    NativeError(Rc<dyn NativeError>),
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),
     ExpectedToken(TokenTypeDiscriminants),

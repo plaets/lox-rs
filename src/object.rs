@@ -81,17 +81,17 @@ impl Object {
     pub fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Self>,StateChange> {
         match self {
             Object::Callable(f) => {
-                if f.arity() as usize == args.len() {
+                if f.arity().is_none() || f.arity().unwrap() as usize == args.len() {
                     f.call(interpreter, args)
                 } else {
-                    Err(StateChange::ErrReason(ErrReason::WrongNumberOfArgs(f.arity(), args.len())))
+                    Err(StateChange::ErrReason(ErrReason::WrongNumberOfArgs(f.arity().unwrap(), args.len())))
                 }
             },
             Object::Class(c) => {
-                if c.arity() as usize == args.len() {
+                if c.arity().is_none() || c.arity().unwrap() as usize == args.len() {
                     c.call(interpreter, args)
                 } else {
-                    Err(StateChange::ErrReason(ErrReason::WrongNumberOfArgs(c.arity(), args.len())))
+                    Err(StateChange::ErrReason(ErrReason::WrongNumberOfArgs(c.arity().unwrap(), args.len())))
                 }
             },
             _ => Err(StateChange::ErrReason(ErrReason::NotACallable(ObjectDiscriminants::from(self)))),
@@ -143,7 +143,7 @@ pub trait Callable {
     fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange>;
     fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], _bound: EnvironmentScope) 
         -> Result<Option<Object>,StateChange>;
-    fn arity(&self) -> u8;
+    fn arity(&self) -> Option<u8>;
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
         None
     }
@@ -239,8 +239,8 @@ impl Callable for Function {
         self.finalize_call(interpreter, args, &mut env)
     }
 
-    fn arity(&self) -> u8 {
-        self.declaration.1.len() as u8
+    fn arity(&self) -> Option<u8> {
+        Some(self.declaration.1.len() as u8)
     }
 
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
@@ -289,7 +289,7 @@ impl ClassObject {
     }
 
     pub fn find_method(&self, name: &str) -> Option<CallableObject> {
-        match self.methods.get(name).map(|v| v.clone()) {
+        match self.methods.get(name).cloned() {
             Some(m) => Some(m),
             None => {
                 if let Some(superclass) = &self.superclass {
@@ -313,11 +313,11 @@ impl Callable for CcClass {
         Ok(Some(Object::Instance(instance)))
     }
 
-    fn arity(&self) -> u8 {
+    fn arity(&self) -> Option<u8> {
         if let Some(init) = self.find_method("init") {
             init.arity()
         } else {
-            0
+            Some(0)
         }
     }
 
@@ -350,7 +350,7 @@ impl Callable for BoundCallable {
         self.callable.call_with_bound(interpreter, args, bound)
     }
 
-    fn arity(&self) -> u8 {
+    fn arity(&self) -> Option<u8> {
         self.callable.arity()
     }
 
