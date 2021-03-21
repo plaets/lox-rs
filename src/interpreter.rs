@@ -391,22 +391,22 @@ impl Interpreter {
     }
 
     fn evaluate_get(&mut self, expr: &ExprVar::Get) -> Result<Object,IntErr> {
-        match self.evaluate(&expr.object)? {
-            Object::Instance(i) => i.get(&expr.name.lexeme).map_or_else(
-                || Err(IntErr(*expr.name.clone(), ErrReason::UndefinedProperty)),
-                Ok),
-            _ => Err(IntErr(*expr.name.clone(), ErrReason::NotAnInstance))
+        match self.evaluate(&expr.object)?.get(&expr.name.lexeme) {
+            Ok(v) => Ok(v),
+            Err(StateChange::ErrReason(reason)) => Err(IntErr(*expr.name.clone(), reason)),
+            Err(StateChange::Return(value)) => Ok(value),
+            Err(StateChange::Err(err)) => Err(err),
         }
     }
 
     fn evaluate_set(&mut self, expr: &ExprVar::Set) -> Result<Object,IntErr> {
-        match &mut self.evaluate(&expr.object)? {
-            Object::Instance(i) => {
-                let value = self.evaluate(&expr.value)?;
-                i.borrow_mut().set(&*expr.name.lexeme, value.clone());
-                Ok(value)
-            },
-            _ => Err(IntErr(*expr.name.clone(), ErrReason::NotAnInstance))
+        let mut obj = self.evaluate(&expr.object)?;
+        let value = self.evaluate(&expr.value)?;
+        match obj.set(&*expr.name.lexeme, value) {
+            Ok(v) => Ok(v),
+            Err(StateChange::ErrReason(reason)) => Err(IntErr(*expr.name.clone(), reason)),
+            Err(StateChange::Return(value)) => Ok(value),      //TODO: this will never happen (unless???)
+            Err(StateChange::Err(err)) => Err(err),             //same for this
         }
     }
 

@@ -13,6 +13,7 @@ pub enum Object {
     Bool(bool),
     String(String),
     Number(f64),
+    //List(CcList),
     Callable(CallableObject),
     Class(CcClass),
     Instance(CcInstanceObject),
@@ -95,6 +96,25 @@ impl Object {
                 }
             },
             _ => Err(StateChange::ErrReason(ErrReason::NotACallable(ObjectDiscriminants::from(self)))),
+        }
+    }
+    
+    pub fn get(&self, name: &str) -> Result<Self,StateChange> {
+        match self {
+            Object::Instance(i) => i.get(name).map_or_else(
+                || Err(StateChange::ErrReason(ErrReason::UndefinedProperty)),
+                Ok),
+            _ => Err(StateChange::ErrReason(ErrReason::NotAnInstance))
+        }
+    }
+
+    pub fn set(&mut self, name: &str, value: Object) -> Result<Self,StateChange> {
+        match self {
+            Object::Instance(i) => {
+                i.borrow_mut().set(name, value.clone());
+                Ok(value)
+            },
+            _ => Err(StateChange::ErrReason(ErrReason::NotAnInstance))
         }
     }
 
