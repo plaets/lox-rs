@@ -59,10 +59,14 @@ fn run(data: &str, globals: EnvironmentScope) -> Result<Option<Object>,IntErr> {
 }
 
 inventory::collect!(NativeInventoryEntry);
+inventory::collect!(NativeClassInventoryEntry);
 fn get_default_env() -> EnvironmentScope {
     let env = Cc::new(RefCell::new(HashMap::new()));
     for entry in inventory::iter::<NativeInventoryEntry> {
-        (*env).borrow_mut().insert(entry.0.clone(), entry.1.clone());
+        (*env).borrow_mut().insert(entry.0.clone(), Object::Callable(entry.1.clone()));
+    }
+    for entry in inventory::iter::<NativeClassInventoryEntry> {
+        (*env).borrow_mut().insert(entry.0.name.clone(), Object::Class(entry.0.clone()));
     }
     env
 }

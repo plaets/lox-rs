@@ -186,12 +186,9 @@ impl Trace for Box<dyn Callable> {
     }
 }
 
+//struct to hold things implementing callable
 #[derive(Clone)]
 pub struct CallableObject(Cc<Box<dyn Callable>>);
-
-//Cc<BoxValues> -> Cc<Box<dyn Callable>> there are like two layers of indirection, do i really need
-//that box? probably but i dont remember why
-//all the cc related boilerprate is way too complicated rn 
 
 impl CallableObject {
     pub fn new(arg: Box<dyn Callable>) -> Self {
@@ -227,7 +224,7 @@ impl fmt::Debug for CallableObject {
     }
 }
 
-//struct for functions defined in loc
+//struct for functions defined in lox (dynamically)
 #[derive(Debug, Clone, PartialEq, Trace)]
 pub struct Function {
     declaration: CcFunctionStmt,
@@ -294,9 +291,9 @@ impl std::ops::Deref for CcClass {
 
 #[derive(Debug, Clone, PartialEq, Trace)]
 pub struct ClassObject {
-    name: String,
-    methods: HashMap<String,CallableObject>,
-    superclass: Option<CcClass>,
+    pub name: String,
+    pub methods: HashMap<String,CallableObject>,
+    pub superclass: Option<CcClass>,
 }
 
 impl ClassObject {
@@ -398,6 +395,10 @@ impl CcInstanceObject {
         } else {
             None
         }
+    }
+
+    pub fn set(&mut self, name: &str, value: Object) {
+        self.0.borrow_mut().set(name, value)
     }
 }
 
