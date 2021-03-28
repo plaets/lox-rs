@@ -7,7 +7,6 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::cell::RefCell;
 use gcmodule::Cc;
-use inventory;
 
 mod lexer;
 use lexer::*;
@@ -19,7 +18,7 @@ mod object;
 use object::{Object};
 mod resolver;
 use resolver::*;
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types,non_snake_case)]
 mod native;
 use native::*;
 mod ast;

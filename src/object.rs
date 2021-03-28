@@ -1,6 +1,7 @@
 use std::fmt;
 use std::collections::HashMap;
 use std::cell::RefCell;
+use std::any::Any;
 use gcmodule::{Cc,Trace,Tracer};
 use strum_macros::EnumDiscriminants;
 use crate::interpreter::*;
@@ -17,6 +18,31 @@ pub enum Object {
     Callable(CallableObject),
     Class(CcClass),
     Instance(CcInstanceObject),
+    Native(CcNativeObject),
+}
+
+pub trait NativeObject: Trace + std::fmt::Debug {
+    fn get_any(&self) -> &dyn std::any::Any;
+    fn trace_int(&self, _tracer: &mut Tracer) {  }
+}
+
+#[derive(Debug,Clone)]
+pub struct CcNativeObject(pub Cc<Box<dyn NativeObject>>);
+
+impl PartialEq for CcNativeObject {
+    fn eq(&self, other: &Self) -> bool {
+        let left: *const Box<dyn NativeObject> = &*self.0;
+        let right: *const Box<dyn NativeObject> = &*other.0;
+        left == right
+    }
+}
+
+impl Trace for Box<dyn NativeObject> {
+    //i wanted to call trace from dyn Callable but i dnont know how
+    fn trace(&self, tracer: &mut Tracer) {
+        use std::ops::Deref;
+        self.deref().trace(tracer)
+    }
 }
 
 macro_rules! number_bin_op {
@@ -41,6 +67,7 @@ impl Object {
             Object::Callable(_) => true, //???
             Object::Class(_) => true, //???
             Object::Instance(_) => true, //???
+            Object::Native(_) => true, //???
         }
     }
 
@@ -138,6 +165,7 @@ impl fmt::Display for Object {
             Object::Callable(_) => write!(f, "Callable"),
             Object::Class(c) => write!(f, "Class<{}>", c.name),
             Object::Instance(c) => write!(f, "Instance<{}>", c.borrow().class.name),
+            Object::Native(_c) => write!(f, "NativeObject"),
         }
     }
 }
