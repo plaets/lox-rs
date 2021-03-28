@@ -310,6 +310,7 @@ impl Interpreter {
             Expr::Super(expr) => self.evaluate_super(&expr),
             Expr::Unary(expr) => self.evaluate_unary(&expr),
             Expr::Literal(expr) => self.get_object(&expr.token),
+            Expr::List(expr) => self.evaluate_list(&expr),
             Expr::Variable(expr) => self.evaluate_variable(&m_expr, &*expr.name),
             Expr::Grouping(expr) => self.evaluate(&expr.expr),
         }
@@ -340,6 +341,14 @@ impl Interpreter {
             TokenType::Bang => Ok(Object::Bool(!right.is_truthy())),
             _ => Err(int_err!(op.clone(), ErrReason::InvalidOperator(TokenTypeDiscriminants::from(&op.token_type)))),
         }
+    }
+    
+    fn evaluate_list(&mut self, expr: &ExprVar::List) -> Result<Object,IntErr> {
+        let mut list = Vec::new();
+        for n in &expr.elems {
+            list.push(self.evaluate(&n)?);
+        }
+        Ok(Object::List(CcList::from_vec(list)))
     }
 
     fn evaluate_logical(&mut self, expr: &ExprVar::Logical) -> Result<Object,IntErr> {

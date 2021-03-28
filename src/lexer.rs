@@ -174,7 +174,7 @@ impl Scanner {
     }
 
     fn is_digit(&self, c: char) -> bool {
-        ('0'..'9').contains(&c)
+        ('0'..='9').contains(&c)
     }
 
     fn peek(&mut self) -> char {

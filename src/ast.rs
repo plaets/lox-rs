@@ -187,6 +187,7 @@ pub enum Expr {
     This { keyword: Box<Token> },
     Super { keyword: Box<Token>, method: Box<Token> },
     Unary { op: Box<Token>, expr: Box<Expr> },
+    List { elems: Vec<Expr>, left_paren: Box<Token> },
     Literal { token: Box<Token> },
     Variable { name: Box<Token> },
     Grouping { expr: Box<Expr> },
@@ -206,6 +207,7 @@ impl Expr {
             Expr::Super(ExprVar::Super{keyword, ..}) => *(keyword.clone()),
             Expr::Unary(ExprVar::Unary{op, ..}) => *(op.clone()),
             Expr::Literal(ExprVar::Literal{token, ..}) => *(token.clone()),
+            Expr::List(ExprVar::List{left_paren, ..}) => *(left_paren.clone()),
             Expr::Variable(ExprVar::Variable{name, ..}) => *(name.clone()),
             Expr::Grouping(ExprVar::Grouping{expr, ..}) => expr.get_token(),
         }

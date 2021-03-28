@@ -83,6 +83,7 @@ impl Resolver {
             Expr::Super(expr) => self.resolve_super(&expr),
             Expr::Unary(expr) => self.resolve_expr(&expr.expr),
             Expr::Literal(_) => Ok(()),
+            Expr::List(expr) => self.resolve_list(&expr),
             Expr::Variable(expr) => self.resolve_variable(&expr),
             Expr::Grouping(expr) => self.resolve_expr(&expr.expr),
         }
@@ -271,6 +272,13 @@ impl Resolver {
                                                              ResolverErrorReason::SuperWithoutSuperclass))
         }
         self.resolve_local(&Expr::from_variant(expr.clone()), &expr.keyword);
+        Ok(())
+    }
+
+    fn resolve_list(&mut self, expr: &ExprVar::List) -> Result<(),ResolverError> {
+        for n in &expr.elems {
+            self.resolve_expr(&n)?;
+        }
         Ok(())
     }
 

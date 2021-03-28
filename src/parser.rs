@@ -348,6 +348,7 @@ impl Parser {
                 args.push(self.expression()?);
             }
         }
+        //TODO this is the right paren not the left paren
         let paren = self.consume(TokenTypeDiscriminants::RightParen, None)?;
         Ok(Expr::from_variant(ExprVar::Call{callee: Box::new(callee), left_paren: Box::new(paren), args}))
     }
@@ -386,6 +387,19 @@ impl Parser {
             let expr = self.expression()?;
             self.consume(TokenTypeDiscriminants::RightParen, None)?;
             return Ok(Expr::from_variant(ExprVar::Grouping{expr: Box::new(expr)}))
+        }
+
+        if self.match_tokens(vec![TokenTypeDiscriminants::LeftSqParen]) {
+            let left_paren = Box::new(self.previous());
+            let mut elems = Vec::new();
+            if !self.check(TokenTypeDiscriminants::RightSqParen) {
+                elems.push(self.expression()?);
+                while self.match_tokens(vec![TokenTypeDiscriminants::Comma]) {
+                    elems.push(self.expression()?);
+                }
+            }
+            self.consume(TokenTypeDiscriminants::RightSqParen, None)?;
+            return Ok(Expr::from_variant(ExprVar::List{ elems, left_paren }))
         }
 
         Err(ParseError(self.peek(), ParseErrorReason::ExpectedExpr))

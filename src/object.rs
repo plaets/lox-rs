@@ -14,11 +14,33 @@ pub enum Object {
     Bool(bool),
     String(String),
     Number(f64),
-    //List(CcList),
+    List(CcList),
     Callable(CallableObject),
     Class(CcClass),
     Instance(CcInstanceObject),
     Native(CcNativeObject),
+}
+
+#[derive(Debug,Clone,PartialEq)]
+pub struct CcList(pub Cc<RefCell<Vec<Object>>>);
+
+impl CcList {
+    pub fn new() -> Self {
+        Self(Cc::new(RefCell::new(Vec::new())))
+    }
+
+    pub fn from_vec(vec: Vec<Object>) -> Self {
+        Self(Cc::new(RefCell::new(vec)))
+    }
+}
+
+impl Trace for CcList {
+    //i wanted to call trace from dyn Callable but i dnont know how
+    fn trace(&self, tracer: &mut Tracer) {
+        for n in &*self.0.borrow() {
+            n.trace(tracer)
+        }
+    }
 }
 
 pub trait NativeObject: Trace + std::fmt::Debug {
@@ -64,6 +86,7 @@ impl Object {
             Object::Bool(b) => *b,
             Object::String(_) => true,
             Object::Number(n) => *n != 0.0,
+            Object::List(l) => l.0.borrow().len() != 0,
             Object::Callable(_) => true, //???
             Object::Class(_) => true, //???
             Object::Instance(_) => true, //???
@@ -101,6 +124,11 @@ impl Object {
         match (self, other) {
             (Object::Number(a), Object::Number(b)) => Ok(Object::Number(a + b)),
             (Object::String(a), Object::String(b)) => Ok(Object::String(a.to_owned() + b)),
+            (Object::List(a), _) => {
+                let mut new = a.0.borrow_mut().clone();
+                new.push(other.clone());
+                Ok(Object::List(CcList::from_vec(new)))
+            }
             _ => Err(ErrReason::InvalidBinaryOperands(ObjectDiscriminants::from(self), 
                                                    OperationType::Add, ObjectDiscriminants::from(self))),
         }
@@ -138,7 +166,18 @@ impl Object {
                     Err(StateChange::ErrReason(ErrReason::UnexpectedType(ObjectDiscriminants::String, 
                                                                          ObjectDiscriminants::from(arg))))
                 }
-            }
+            },
+            Object::List(s) => {
+                if let Object::Number(n) = arg {
+                    match s.0.borrow().iter().nth(*n as usize) {
+                        Some(o) => Ok(Some(o.clone())),
+                        None => Err(StateChange::ErrReason(ErrReason::OutOfBounds(s.0.borrow().len(), *n as usize)))
+                    }
+                } else {
+                    Err(StateChange::ErrReason(ErrReason::UnexpectedType(ObjectDiscriminants::List, 
+                                                                         ObjectDiscriminants::from(arg))))
+                }
+            },
             _ => Err(StateChange::ErrReason(ErrReason::NotSubscriptable(ObjectDiscriminants::from(self))))
         }
     }
@@ -177,8 +216,19 @@ impl fmt::Display for Object {
         match self {
             Object::Nil => write!(f, "nil"),
             Object::Bool(val) => write!(f, "{}", val),
-            Object::String(val) => write!(f, "{}", val),
+            Object::String(val) => write!(f, "\"{}\"", val),
             Object::Number(val) => write!(f, "{}", val),
+            Object::List(l) => {
+                write!(f, "[");
+                let blist = l.0.borrow();
+                for (i,o) in blist.iter().enumerate() {
+                    write!(f, "{}", o);
+                    if i < blist.len()-1 {
+                        write!(f, ",");
+                    }
+                }
+                write!(f, "]")
+            }
             Object::Callable(_) => write!(f, "Callable"),
             Object::Class(c) => write!(f, "Class<{}>", c.name),
             Object::Instance(c) => write!(f, "Instance<{}>", c.borrow().class.name),
