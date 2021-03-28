@@ -76,6 +76,7 @@ impl Resolver {
             Expr::Logical(expr) => self.resolve_logical(&expr),
             Expr::Binary(expr) => self.resolve_binary(&expr),
             Expr::Call(expr) => self.resolve_call(&expr),
+            Expr::Subscr(expr) => self.resolve_sub(&expr),
             Expr::Get(expr) => self.resolve_get(&expr),
             Expr::Set(expr) => self.resolve_set(&expr),
             Expr::This(expr) => self.resolve_this(&expr),
@@ -235,6 +236,11 @@ impl Resolver {
             self.resolve_expr(n)?;
         }
         Ok(())
+    }
+
+    fn resolve_sub(&mut self, expr: &ExprVar::Subscr) -> Result<(),ResolverError> {
+        self.resolve_expr(&expr.object)?;
+        self.resolve_expr(&expr.arg)
     }
 
     fn resolve_get(&mut self, stmt: &ExprVar::Get) -> Result<(),ResolverError> {

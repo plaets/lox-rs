@@ -60,6 +60,8 @@ impl Scanner {
         match c {
             '(' => Ok(Some(self.make_token(TokenType::LeftParen))),
             ')' => Ok(Some(self.make_token(TokenType::RightParen))),
+            '[' => Ok(Some(self.make_token(TokenType::LeftSqParen))),
+            ']' => Ok(Some(self.make_token(TokenType::RightSqParen))),
             '{' => Ok(Some(self.make_token(TokenType::LeftBrace))),
             '}' => Ok(Some(self.make_token(TokenType::RightBrace))),
             ',' => Ok(Some(self.make_token(TokenType::Comma))),

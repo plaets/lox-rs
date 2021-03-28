@@ -303,6 +303,7 @@ impl Interpreter {
             Expr::Logical(expr) => self.evaluate_logical(&expr),
             Expr::Binary(expr) => self.evaluate_binary(&expr),
             Expr::Call(expr) => self.evaluate_call(&expr),
+            Expr::Subscr(expr) => self.evaluate_subscr(&expr),
             Expr::Get(expr) => self.evaluate_get(&expr),
             Expr::Set(expr) => self.evaluate_set(&expr),
             Expr::This(expr) => self.evaluate_variable(&m_expr, &*expr.keyword),
@@ -382,6 +383,18 @@ impl Interpreter {
             eval_args.push(self.evaluate(arg)?);
         }
         match callee.call(self, &eval_args) {
+            Ok(Some(val)) => Ok(val),
+            Ok(None) => Ok(Object::Nil),
+            Err(StateChange::Return(value)) => Ok(value),
+            Err(StateChange::ErrReason(reason)) => Err(IntErr(*expr.left_paren.clone(), reason)),
+            Err(StateChange::Err(err)) => Err(err),
+        }
+    }
+
+    fn evaluate_subscr(&mut self, expr: &ExprVar::Subscr) -> Result<Object,IntErr> {
+        let object = self.evaluate(&expr.object)?;
+        let arg = self.evaluate(&expr.arg)?;
+        match object.subscr(self, &arg) {
             Ok(Some(val)) => Ok(val),
             Ok(None) => Ok(Object::Nil),
             Err(StateChange::Return(value)) => Ok(value),
@@ -491,6 +504,9 @@ pub enum ErrReason {
     UndefinedVariable,
     InvalidBinaryOperands(ObjectDiscriminants, OperationType, ObjectDiscriminants),
     NotACallable(ObjectDiscriminants),
+    NotSubscriptable(ObjectDiscriminants),
+    OutOfBounds(usize, usize), //expected, given
+    UnexpectedType(ObjectDiscriminants, ObjectDiscriminants), //expected, given
     NotAnInstance,
     UndefinedProperty,
     WrongNumberOfArgs(u8, usize), //expected, given

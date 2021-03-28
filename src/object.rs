@@ -125,6 +125,23 @@ impl Object {
             _ => Err(StateChange::ErrReason(ErrReason::NotACallable(ObjectDiscriminants::from(self)))),
         }
     }
+
+    pub fn subscr(&self, interpreter: &mut Interpreter, arg: &Object) -> Result<Option<Self>,StateChange> {
+        match self {
+            Object::String(s) => {
+                if let Object::Number(n) = arg {
+                    match s.chars().nth(*n as usize) {
+                        Some(c) => Ok(Some(Object::String(c.to_string()))),
+                        None => Err(StateChange::ErrReason(ErrReason::OutOfBounds(s.len(), *n as usize)))
+                    }
+                } else {
+                    Err(StateChange::ErrReason(ErrReason::UnexpectedType(ObjectDiscriminants::String, 
+                                                                         ObjectDiscriminants::from(arg))))
+                }
+            }
+            _ => Err(StateChange::ErrReason(ErrReason::NotSubscriptable(ObjectDiscriminants::from(self))))
+        }
+    }
     
     pub fn get(&self, name: &str) -> Result<Self,StateChange> {
         match self {

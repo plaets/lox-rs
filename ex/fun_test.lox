@@ -1,0 +1,12 @@
+fun a() {
+    fun b() {
+        return "asd"; 
+    }
+    return b;
+}
+
+print a();
+print a()();
+var b = a();
+print a()()[2][0];
+print b()[2][0];

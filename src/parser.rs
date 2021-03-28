@@ -321,6 +321,12 @@ impl Parser {
         loop {
             if self.match_tokens(vec![TokenTypeDiscriminants::LeftParen]) {
                 expr = self.finish_call(expr)?;
+            } else if self.match_tokens(vec![TokenTypeDiscriminants::LeftSqParen]) {
+                let paren = self.previous();
+                let arg = self.expression()?;
+                self.consume(TokenTypeDiscriminants::RightSqParen, None)?;
+                expr = Expr::from_variant(ExprVar::Subscr { 
+                    object: Box::new(expr), left_paren: Box::new(paren), arg: Box::new(arg) })
             } else if self.match_tokens(vec![TokenTypeDiscriminants::Dot]) {
                 let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedPropertyName))?;
                 expr = Expr::from_variant(ExprVar::Get{ object: Box::new(expr), name: Box::new(name) });
