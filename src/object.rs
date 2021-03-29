@@ -1,9 +1,11 @@
 use std::fmt;
 use std::collections::HashMap;
 use std::cell::RefCell;
-use std::any::Any;
+use std::sync::Mutex;
 use gcmodule::{Cc,Trace,Tracer};
 use strum_macros::EnumDiscriminants;
+use lazy_static::lazy_static;
+use crate::native::utils::*;
 use crate::interpreter::*;
 use crate::ast::CcFunctionStmt;
 
@@ -19,52 +21,6 @@ pub enum Object {
     Class(CcClass),
     Instance(CcInstanceObject),
     Native(CcNativeObject),
-}
-
-#[derive(Debug,Clone,PartialEq)]
-pub struct CcList(pub Cc<RefCell<Vec<Object>>>);
-
-impl CcList {
-    pub fn new() -> Self {
-        Self(Cc::new(RefCell::new(Vec::new())))
-    }
-
-    pub fn from_vec(vec: Vec<Object>) -> Self {
-        Self(Cc::new(RefCell::new(vec)))
-    }
-}
-
-impl Trace for CcList {
-    //i wanted to call trace from dyn Callable but i dnont know how
-    fn trace(&self, tracer: &mut Tracer) {
-        for n in &*self.0.borrow() {
-            n.trace(tracer)
-        }
-    }
-}
-
-pub trait NativeObject: Trace + std::fmt::Debug {
-    fn get_any(&self) -> &dyn std::any::Any;
-    fn trace_int(&self, _tracer: &mut Tracer) {  }
-}
-
-#[derive(Debug,Clone)]
-pub struct CcNativeObject(pub Cc<Box<dyn NativeObject>>);
-
-impl PartialEq for CcNativeObject {
-    fn eq(&self, other: &Self) -> bool {
-        let left: *const Box<dyn NativeObject> = &*self.0;
-        let right: *const Box<dyn NativeObject> = &*other.0;
-        left == right
-    }
-}
-
-impl Trace for Box<dyn NativeObject> {
-    //i wanted to call trace from dyn Callable but i dnont know how
-    fn trace(&self, tracer: &mut Tracer) {
-        use std::ops::Deref;
-        self.deref().trace(tracer)
-    }
 }
 
 macro_rules! number_bin_op {
@@ -245,6 +201,80 @@ impl Trace for Object {
             Object::Instance(o) => o.trace(tracer),
             _ => {},
         }
+    }
+}
+
+// LIST
+
+#[derive(Debug,Clone,PartialEq)]
+pub struct CcList(pub Cc<RefCell<Vec<Object>>>);
+
+impl CcList {
+    pub fn new() -> Self {
+        Self(Cc::new(RefCell::new(Vec::new())))
+    }
+
+    pub fn from_vec(vec: Vec<Object>) -> Self {
+        Self(Cc::new(RefCell::new(vec)))
+    }
+}
+
+impl Trace for CcList {
+    //i wanted to call trace from dyn Callable but i dnont know how
+    fn trace(&self, tracer: &mut Tracer) {
+        for n in &*self.0.borrow() {
+            n.trace(tracer)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ListMetaclassClassInventoryEntry(pub CcClass);
+
+define_native_class!(
+    ListMetaclassDef, ListMetaclassClassInventoryEntry,
+    len, Some(0), |_,args: &[Object],_| -> ReturnType {
+        let arg = &args[0];
+        match arg {
+            Object::List(l) => Ok(Some(Object::Number(l.0.borrow().len() as f64))),
+            _ => Err(StateChange::ErrReason(ErrReason::UnexpectedType(ObjectDiscriminants::List, arg.into())))
+        }
+    }
+);
+
+//yeah im not happy with that either
+inventory::collect!(ListMetaclassClassInventoryEntry);
+lazy_static! {
+    static ref ListMetaclass: Mutex<Object> = {
+        Mutex::new(Object::Instance(CcInstanceObject::new(Cc::new(
+            Object::Class(inventory::iter::<NativeInventoryEntry>.next())
+        ))))
+    };
+}
+
+// NATIVE OBJECT
+
+pub trait NativeObject: Trace + std::fmt::Debug {
+    fn get_any(&self) -> &dyn std::any::Any;
+    fn trace_int(&self, _tracer: &mut Tracer) {  }
+}
+
+#[derive(Debug,Clone)]
+pub struct CcNativeObject(pub Cc<Box<dyn NativeObject>>);
+
+impl PartialEq for CcNativeObject {
+    fn eq(&self, other: &Self) -> bool {
+        let left: *const Box<dyn NativeObject> = &*self.0;
+        let right: *const Box<dyn NativeObject> = &*other.0;
+        left == right
+    }
+}
+
+impl Trace for Box<dyn NativeObject> {
+    //i wanted to call trace from dyn Callable but i dnont know how
+    fn trace(&self, tracer: &mut Tracer) {
+        use std::ops::Deref;
+        self.deref().trace(tracer)
     }
 }
 

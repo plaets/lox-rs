@@ -14,13 +14,14 @@ mod parser;
 use parser::*;
 mod interpreter;
 use interpreter::*;
+#[macro_use]
+#[allow(non_camel_case_types,non_snake_case)]
+mod native;
+use native::utils::{NativeInventoryEntry,NativeClassInventoryEntry};
 mod object;
 use object::{Object};
 mod resolver;
 use resolver::*;
-#[allow(non_camel_case_types,non_snake_case)]
-mod native;
-use native::*;
 mod ast;
 
 #[cfg(test)]
