@@ -89,6 +89,7 @@ define_native_class!(
     }
 );
 
+use paste::paste;
 define_native!(clock,Some(0),|_,_| -> ReturnType {
     Ok(Some(Object::Number(time::SystemTime::now().duration_since(time::SystemTime::UNIX_EPOCH).unwrap().as_nanos() as f64)))
 });
@@ -107,5 +108,13 @@ define_native!(exit,Some(1),|_,args: &[Object]| -> ReturnType {
         std::process::exit(*n as i32)
     } else {
         native_err!(SimpleError::new("Argument must be a number"))
+    }
+});
+
+define_native!(len,Some(1),|_,args: &[Object]| -> ReturnType {
+    match &args[0] {
+        Object::String(n) => Ok(Some(Object::Number(n.len() as f64))),
+        Object::List(n) => Ok(Some(Object::Number(n.0.borrow().len() as f64))),
+        _ => native_err!(SimpleError::new("Expected a list or a string")),
     }
 });

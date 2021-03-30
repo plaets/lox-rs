@@ -228,29 +228,8 @@ impl Trace for CcList {
     }
 }
 
-#[derive(Debug)]
-pub struct ListMetaclassClassInventoryEntry(pub CcClass);
-
-define_native_class!(
-    ListMetaclassDef, ListMetaclassClassInventoryEntry,
-    len, Some(0), |_,args: &[Object],_| -> ReturnType {
-        let arg = &args[0];
-        match arg {
-            Object::List(l) => Ok(Some(Object::Number(l.0.borrow().len() as f64))),
-            _ => Err(StateChange::ErrReason(ErrReason::UnexpectedType(ObjectDiscriminants::List, arg.into())))
-        }
-    }
-);
-
-//yeah im not happy with that either
-inventory::collect!(ListMetaclassClassInventoryEntry);
-lazy_static! {
-    static ref ListMetaclass: Mutex<Object> = {
-        Mutex::new(Object::Instance(CcInstanceObject::new(Cc::new(
-            Object::Class(inventory::iter::<NativeInventoryEntry>.next())
-        ))))
-    };
-}
+//yeah im giving up on metaclasses (or whatever the mechanism that allows me to do things like
+//"asd".len() is called) for now
 
 // NATIVE OBJECT
 

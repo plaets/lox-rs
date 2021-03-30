@@ -41,26 +41,28 @@ macro_rules! define_native {
     ($name:ident,$body:expr) => { define_native!($name,None,$body); };
     ($name:ident,$arity:expr,$body:expr) => { define_native!($name,std::stringify!($name),{$arity},$body); };
     ($name:ident,$str_name:expr,$arity:expr,$body:expr) => {
-        #[derive(Trace)]
-        pub struct $name;
-        impl Callable for $name {
-            #[allow(unused_variables)]
-            fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
-                $body(interpreter, args)
-            }
+        paste! {
+            #[derive(Trace)]
+            pub struct [<Native $name>];
+            impl Callable for [<Native $name>] {
+                #[allow(unused_variables)]
+                fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
+                    $body(interpreter, args)
+                }
 
-            fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], _bound: EnvironmentScope) 
-                -> Result<Option<Object>,StateChange> {
-                self.call(interpreter, args)
-            }
+                fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], _bound: EnvironmentScope) 
+                    -> Result<Option<Object>,StateChange> {
+                    self.call(interpreter, args)
+                }
 
-            fn arity(&self) -> Option<u8> {
-                $arity
+                fn arity(&self) -> Option<u8> {
+                    $arity
+                }
             }
-        }
-        inventory::submit! {
-            use crate::object::CallableObject;
-            NativeInventoryEntry($str_name.to_owned(), CallableObject::new(Box::new($name{})))
+            inventory::submit! {
+                use crate::object::CallableObject;
+                NativeInventoryEntry($str_name.to_owned(), CallableObject::new(Box::new([<Native $name>]{})))
+            }
         }
     }
 }
@@ -143,6 +145,19 @@ macro_rules! define_native_class {
                 )*
 
                 finish_inventory!($name,NativeClassInventoryEntry);
+            }
+        }
+    }
+}
+
+macro_rules! assert_object {
+    ($type:ident,$what:expr) => {
+        {
+            use crate::object::ObjectDiscriminants;
+            if let Object::$type(n) = $what {
+                Ok(n)
+            } else {
+                Err(StateChange::ErrReason(ErrReason::UnexpectedType(ObjectDiscriminants::$type,$what.into()))) 
             }
         }
     }
