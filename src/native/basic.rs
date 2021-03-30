@@ -19,31 +19,24 @@ impl NativeObject for FileHandle {
 define_native_class!(
     File,
     init, Some(1), |_,args: &[Object],bound: EnvironmentScope| -> ReturnType {
-        let mut this = this_or_err(&bound)?;
-        if let Object::String(s) = &args[0] {
-            if let Ok(f) = RsFile::open(s) {
-                this.set("__handle", Object::Native(CcNativeObject(Cc::new(Box::new(FileHandle(RefCell::new(f)))))));
-                Ok(None)
-            } else {
-                native_err!(SimpleError::new("Failed to open a file"))
-            }
+        let mut this = get_or_err(&bound, "this")?;
+        let s = assert_object!(String, &args[0])?;
+        if let Ok(f) = RsFile::open(s) {
+            this.set("__handle", Object::Native(CcNativeObject(Cc::new(Box::new(FileHandle(RefCell::new(f)))))));
+            Ok(None)
         } else {
-            native_err!(SimpleError::new("Expected a string"))
+            native_err!(SimpleError::new("Failed to open a file"))
         }
     },
     read, None, |_,args: &[Object],bound: EnvironmentScope| -> ReturnType {
-        let this = this_or_err(&bound)?;
+        let this = get_or_err(&bound, "this")?;
         if let Some(Object::Native(n)) = &this.get("__handle") {
             if let Some(f) = n.0.get_any().downcast_ref::<FileHandle>() {
                 let mut buffer = String::new();
                 let mut fd = f.0.borrow_mut();
                 match args.len() {
                     0 => { fd.read_to_string(&mut buffer); },
-                    1 => if let Object::Number(n) = args[0] {
-                        fd.by_ref().take(n as u64).read_to_string(&mut buffer);
-                    } else {
-                        return native_err!(SimpleError::new("Expected a number"))
-                    }
+                    1 => { fd.by_ref().take(*assert_object!(Number, &args[0])? as u64).read_to_string(&mut buffer); },
                     _ => return native_err!(SimpleError::new("Expected either 0 or 1 arguments"))
                 }
                 Ok(Some(Object::String(buffer)))
@@ -55,15 +48,11 @@ define_native_class!(
         }
     },
     seek, Some(1), |_,args: &[Object],bound: EnvironmentScope| -> ReturnType {
-        let this = this_or_err(&bound)?;
+        let this = get_or_err(&bound, "this")?;
         if let Some(Object::Native(n)) = &this.get("__handle") {
             if let Some(f) = n.0.get_any().downcast_ref::<FileHandle>() {
-                if let Object::Number(n) = args[0] {
-                    f.0.borrow_mut().seek(SeekFrom::Start(n as u64));
-                    Ok(None)
-                } else {
-                    native_err!(SimpleError::new("Expected a number"))
-                }
+                f.0.borrow_mut().seek(SeekFrom::Start(*assert_object!(Number, &args[0])? as u64));
+                Ok(None)
             } else {
                 native_err!(SimpleError::new("Invalid handle"))
             }
@@ -72,7 +61,7 @@ define_native_class!(
         }
     },
     size, Some(0), |_,_,bound: EnvironmentScope| -> ReturnType {
-        let this = this_or_err(&bound)?;
+        let this = get_or_err(&bound, "this")?;
         if let Some(Object::Native(n)) = &this.get("__handle") {
             if let Some(f) = n.0.get_any().downcast_ref::<FileHandle>() {
                 let mut f = f.0.borrow_mut();
@@ -104,11 +93,7 @@ define_native!(input,Some(0),|_,_| -> ReturnType {
 });
 
 define_native!(exit,Some(1),|_,args: &[Object]| -> ReturnType {
-    if let Some(Object::Number(n)) = args.first() {
-        std::process::exit(*n as i32)
-    } else {
-        native_err!(SimpleError::new("Argument must be a number"))
-    }
+    std::process::exit(*assert_object!(Number, &args[0])? as i32)
 });
 
 define_native!(len,Some(1),|_,args: &[Object]| -> ReturnType {

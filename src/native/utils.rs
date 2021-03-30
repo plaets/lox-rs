@@ -163,8 +163,8 @@ macro_rules! assert_object {
     }
 }
 
-pub fn this_or_err(bound: &EnvironmentScope) -> Result<CcInstanceObject,StateChange> {
-    if let Some(Object::Instance(i)) = bound.borrow_mut().get("this").cloned() {
+pub fn get_or_err(bound: &EnvironmentScope, name: &str) -> Result<CcInstanceObject,StateChange> {
+    if let Some(Object::Instance(i)) = bound.borrow_mut().get(name).cloned() {
         Ok(i)
     } else {
         native_err!(SimpleError::new("This is not an instance"))
