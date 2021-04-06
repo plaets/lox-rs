@@ -467,7 +467,6 @@ impl Callable for BoundCallable {
     //alos this just silently fails if callable does not support it lmao
     fn call_with_bound(&self, interpreter: &mut Interpreter, args: &[Object], bound: EnvironmentScope) 
         -> Result<Option<Object>,StateChange> {
-        //wont contain this lol
         self.callable.call_with_bound(interpreter, args, bound)
     }
 
@@ -476,7 +475,7 @@ impl Callable for BoundCallable {
     }
 
     fn get_closure(&self) -> Option<&Vec<EnvironmentScope>> {
-        self.callable.get_closure() //won't contain this tho
+        self.callable.get_closure() 
     }
 }
 

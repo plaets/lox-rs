@@ -8,9 +8,6 @@ use crate::ast::*;
 use crate::object::*;
 use crate::resolver::LocalsMap;
 
-//so i been thinking... do i need garbage collection or does rc handle all i need to do
-//update: check the examples for an answer
-
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub enum OperationType {
@@ -279,8 +276,6 @@ impl Interpreter {
 
     pub fn exec_block_in_env(&mut self, stmts: &StmtVar::Block, env: &mut Environment) -> Result<Option<Object>,StateChange> {
         //this fucking sucks there is no way this works
-        //function calling needs to be implemented differently
-        //maybe it was a good idea to use linked lists after all
         swap(&mut self.env, env);
         let mut return_val: Option<Object> = None;
         for stmt in &stmts.body {
@@ -489,9 +484,6 @@ impl Interpreter {
     }
 }
 
-//todo (not anymore): result should not be used anymore i think, we need a new enum - haha actually
-//you cant propagate errors from other enums (yet? i think? without nightly at least)
-//i guess i will have to stay with this ugly ass return-in-error
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum StateChange {

@@ -8,7 +8,7 @@ use crate::native::utils::*;
 use crate::object::{Callable,Object,CallableObject,CcClass,NativeObject,CcNativeObject};
 use crate::interpreter::{Interpreter,StateChange,EnvironmentScope,ErrReason};
 
-//so like three of four levels of pointer indirection
+//so like three of four levels of pointer indirection?
 #[derive(Debug)]
 struct FileHandle(pub RefCell<std::fs::File>);
 impl Trace for FileHandle {}
