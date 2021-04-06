@@ -107,9 +107,28 @@ impl Parser {
         let name = self.consume(TokenTypeDiscriminants::Identifier, Some(ParseErrorReason::ExpectedClassName))?;
 
         let mut superclass: Option<ExprVar::Variable> = None;
-        if self.match_tokens(vec![TokenTypeDiscriminants::Less]) {
-            superclass = Some(ExprVar::Variable{ name: Box::new(self.consume(TokenTypeDiscriminants::Identifier, 
-                                                                Some(ParseErrorReason::ExpectedSuperclassName))?) })
+        let mut mixins: Vec<ExprVar::Variable> = Vec::new();
+
+        while self.peek().token_type != TokenType::LeftBrace {
+            if self.match_tokens(vec![TokenTypeDiscriminants::Less]) {
+                if let None = superclass {
+                    superclass = Some(ExprVar::Variable{ name: Box::new(self.consume(TokenTypeDiscriminants::Identifier, 
+                                                                        Some(ParseErrorReason::ExpectedSuperclassName))?) })
+                } else {
+                    return Err(ParseError(self.previous(), ParseErrorReason::SuperclassMoreThanOneTime))
+                }
+            } else if self.match_tokens(vec![TokenTypeDiscriminants::Semicolon]) {
+                if mixins.len() == 0 {
+                    mixins.push(ExprVar::Variable{ name: Box::new(self.consume(TokenTypeDiscriminants::Identifier, 
+                                                                        Some(ParseErrorReason::ExpectedMixinName))?) });
+                    while self.match_tokens(vec![TokenTypeDiscriminants::Comma]) {
+                        mixins.push(ExprVar::Variable{ name: Box::new(self.consume(TokenTypeDiscriminants::Identifier, 
+                                                                        Some(ParseErrorReason::ExpectedMixinName))?) })
+                    }
+                } else {
+                    return Err(ParseError(self.previous(), ParseErrorReason::MixinsMoreThanOneTime))
+                }
+            }
         }
 
         self.consume(TokenTypeDiscriminants::LeftBrace, None)?;
@@ -120,7 +139,7 @@ impl Parser {
         }
 
         self.consume(TokenTypeDiscriminants::RightBrace, None)?;
-        Ok(StmtVar::Class{ name: Box::new(name), methods, superclass })
+        Ok(StmtVar::Class{ name: Box::new(name), methods, superclass, mixins })
     }
 
     fn statement(&mut self) -> Result<Stmt,ParseError> {
@@ -495,10 +514,13 @@ pub enum ParseErrorReason {
     ExpectedFunctionName,
     ExpectedClassName,
     ExpectedSuperclassName,
+    ExpectedMixinName,
     ExpectedSuperclassMethodName,
     ExpectedFunctionParameterOrRightParen,
     InvalidAssignmentTarget,
     TooManyArguments,
+    SuperclassMoreThanOneTime,
+    MixinsMoreThanOneTime,
     //NotImplemented,
     Other(String),
 }

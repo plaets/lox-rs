@@ -137,6 +137,16 @@ impl Resolver {
             }
         }
 
+        for m in stmt.mixins.iter() {
+            if m.name.lexeme != stmt.name.lexeme {
+                self.current_class = ClassType::Subclass;
+                self.resolve_variable(&m)?;
+            } else {
+                self.non_critical_errors.push(ResolverError::new(*stmt.name.clone(), 
+                                             ResolverErrorReason::CantInheritFromSelf))
+            }
+        }
+
         self.begin_scope();
         self.scopes.last_mut().unwrap().insert("this".to_string(), true);
 

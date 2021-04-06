@@ -238,8 +238,18 @@ impl Interpreter {
                                                                       m.stmt.0.lexeme == "init")));
             methods.insert(m.stmt.0.lexeme.clone(), function);
         }
+
+        let mut mixins: Vec<CcClass> = Vec::new();
+        for m in stmt.mixins.iter() {
+            match int_to_st!(self.evaluate(&Expr::from_variant(m.clone())))? {
+                Object::Class(c) => mixins.push(c),
+                _ => return Err(StateChange::Err(IntErr(*m.name.clone(),
+                                                      ErrReason::MixinIsNotAClass)))
+            }
+        }
         
-        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone(), methods, superclass.clone()))));
+        let class = Object::Class(CcClass(Cc::new(ClassObject::new(stmt.name.lexeme.clone(), methods, 
+                                                                   superclass.clone(), mixins.clone()))));
 
         if superclass.is_some() {
             self.env.pop();
@@ -512,6 +522,7 @@ pub enum ErrReason {
     UndefinedProperty,
     WrongNumberOfArgs(u8, usize), //expected, given
     SuperclassIsNotAClass,
+    MixinIsNotAClass,
     NativeError(Rc<dyn NativeError>),
     InvalidUnaryOperand(OperationType, ObjectDiscriminants),
     InvalidOperator(TokenTypeDiscriminants),
@@ -526,4 +537,5 @@ pub enum CriticalErrorReason {
     ReturnOutsideOfFunction,
     SuperIsNotAClass,
     ThisIsNotAnInstance,
+    MixinIsNotAnInstance,
 }

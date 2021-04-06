@@ -141,7 +141,9 @@ impl Object {
     pub fn get(&self, name: &str) -> Result<Self,StateChange> {
         match self {
             Object::Instance(i) => i.get(name).map_or_else(
-                || Err(StateChange::ErrReason(ErrReason::UndefinedProperty)),
+                || {
+                    Err(StateChange::ErrReason(ErrReason::UndefinedProperty))
+                },
                 Ok),
             _ => Err(StateChange::ErrReason(ErrReason::NotAnInstance))
         }
@@ -386,6 +388,12 @@ impl Callable for Function {
 #[derive(Clone, Debug, PartialEq, Trace)]
 pub struct CcClass(pub Cc<ClassObject>);
 
+//impl Trace for CcClass {
+//    fn trace(&self, tracer: &mut Tracer) {
+//        (*self.0).trace(tracer);
+//    }
+//}
+
 impl std::ops::Deref for CcClass {
     type Target = Cc<ClassObject>;
     fn deref(&self) -> &Self::Target {
@@ -393,19 +401,34 @@ impl std::ops::Deref for CcClass {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Trace)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClassObject {
     pub name: String,
     pub methods: HashMap<String,CallableObject>,
     pub superclass: Option<CcClass>,
+    pub mixins: Vec<CcClass>,
+}
+
+impl Trace for ClassObject {
+    fn trace(&self, tracer: &mut Tracer) {
+        for n in self.methods.values() {
+            n.trace(tracer);
+        }
+        self.superclass.as_ref().map(|s| s.trace(tracer));
+        for m in self.mixins.iter() {
+            m.trace(tracer);
+        }
+    }
 }
 
 impl ClassObject {
-    pub fn new(name: String, methods: HashMap<String,CallableObject>, superclass: Option<CcClass>) -> Self {
+    pub fn new(name: String, methods: HashMap<String,CallableObject>, 
+               superclass: Option<CcClass>, mixins: Vec<CcClass>) -> Self {
         Self {
             name,
             methods,
             superclass,
+            mixins,
         }
     }
 
@@ -425,12 +448,20 @@ impl ClassObject {
 
 impl Callable for CcClass {
     fn call(&self, interpreter: &mut Interpreter, args: &[Object]) -> Result<Option<Object>,StateChange> {
-        let instance = CcInstanceObject::new(self.0.clone());
+        let instance = CcInstanceObject::new(self.0.clone(), vec![]);
         if let Some(init) = self.find_method("init") {
             let env = new_env_scope();
             env.borrow_mut().insert("this".to_string(), Object::Instance(instance.clone()));
             init.call_with_bound(interpreter, args, env)?;
         }
+        let mut mixins: Vec<CcInstanceObject> = Vec::new();
+        for m in self.mixins.iter() {
+            match m.call(interpreter, &vec![])? {
+                Some(Object::Instance(i)) => mixins.push(i),
+                _ => return Err(StateChange::ErrReason(ErrReason::Critical(CriticalErrorReason::MixinIsNotAnInstance))),
+            }
+        }
+        instance.0.borrow_mut().mixins = mixins;
         Ok(Some(Object::Instance(instance)))
     }
 
@@ -483,10 +514,11 @@ impl Callable for BoundCallable {
 pub struct CcInstanceObject(pub Cc<RefCell<InstanceObject>>);
 
 impl CcInstanceObject {
-    pub fn new(class: Cc<ClassObject>) -> Self {
+    pub fn new(class: Cc<ClassObject>, mixins: Vec<CcInstanceObject>) -> Self {
         Self(Cc::new(RefCell::new(InstanceObject {
             class,
             fields: HashMap::new(),
+            mixins,
         })))
     }
 
@@ -496,6 +528,11 @@ impl CcInstanceObject {
         } else if let Some(m) = (*self.0).borrow().class.find_method(name) {
             Some(Object::Callable(CallableObject::new(Box::new(BoundCallable{ callable: m, bound: self.clone() }))))
         } else {
+            for m in self.0.borrow().mixins.iter().rev() {
+                if let Some(o) = m.get(name) {
+                    return Some(o)
+                }
+            }
             None
         }
     }
@@ -512,17 +549,31 @@ impl std::ops::Deref for CcInstanceObject {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Trace)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InstanceObject {
     class: Cc<ClassObject>,
     fields: HashMap<String,Object>,
+    mixins: Vec<CcInstanceObject>,
+}
+
+impl Trace for InstanceObject {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.class.trace(tracer);
+        for f in self.fields.values() {
+            f.trace(tracer);
+        }
+        for m in self.mixins.iter() {
+            m.trace(tracer);
+        }
+    }
 }
 
 impl InstanceObject {
-    pub fn new(class: Cc<ClassObject>) -> Self {
+    pub fn new(class: Cc<ClassObject>, mixins: Vec<CcInstanceObject>) -> Self {
         Self {
             class,
             fields: HashMap::new(),
+            mixins,
         }
     }
 
