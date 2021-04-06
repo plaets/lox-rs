@@ -1,0 +1,45 @@
+class CoolMixin {
+    test() {
+        print("test");
+    }
+}
+
+class CoolMixin2 {
+    test() {
+        print("test2");
+    }
+}
+
+class Class; CoolMixin2, CoolMixin {
+    test() {
+        print("zxc");
+    }
+}
+
+class Class2; CoolMixin2, CoolMixin {
+}
+
+class Class3; CoolMixin, CoolMixin2 {
+}
+
+//should this even be valid
+class Class4; CoolMixin, CoolMixin2, CoolMixin {
+}
+
+//or this even be valid
+class Class5 < CoolMixin2 ; CoolMixin, CoolMixin2, CoolMixin {
+}
+
+class Class6 ; CoolMixin, CoolMixin2 {
+    test2() {
+        this.test();
+    }
+}
+
+Class().test();
+Class2().test();
+Class3().test();
+Class4().test();
+Class5().test();
+Class6().test2();
+

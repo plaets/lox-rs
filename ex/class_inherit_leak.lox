@@ -1,0 +1,10 @@
+while(true) {
+    class asd {
+    }
+    class zxc < asd {
+    }
+    asd();
+    zxc();
+    zxc();
+    asd();
+}

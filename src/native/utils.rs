@@ -93,7 +93,7 @@ macro_rules! finish_inventory {
                     methods.insert(entry.0.clone(), entry.1.clone());
                 }
                 $entry(
-                    CcClass(Cc::new(ClassObject::new(std::stringify!($name).to_string(), methods, None))))
+                    CcClass(Cc::new(ClassObject::new(std::stringify!($name).to_string(), methods, None, vec![]))))
             }
         }
     }

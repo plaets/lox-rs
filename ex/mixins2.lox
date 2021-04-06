@@ -1,0 +1,32 @@
+class Mixin {
+    init() {
+        this.n = 0;
+    }
+
+    test() {
+        this.n = this.n + 1;
+        return this.n;
+    }
+}
+
+class C ; Mixin {
+}
+
+var a = C();
+print a.test();
+print a.test();
+print a.test();
+print a.test();
+
+class M2 ; C {
+}
+
+//same name different c
+class C ; M2 {
+}
+
+var b = C();
+print b.test();
+print b.test();
+print b.test();
+print b.test();
